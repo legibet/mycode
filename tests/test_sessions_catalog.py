@@ -202,6 +202,33 @@ async def test_delete_session_under_its_lock_removes_the_whole_directory(store: 
     assert not store.session_dir("s1").exists()
 
 
+async def test_delete_session_removes_its_subagent_sessions(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    children = SessionStore(data_dir=store.agents_dir("s1"))
+    await children.append_message("c1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
+
+    with store.lock("s1", "the web server"):
+        await store.delete_session("s1")
+
+    assert not store.session_dir("s1").exists()
+
+
+async def test_delete_session_refuses_while_a_subagent_turn_holds_its_lock(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    children = SessionStore(data_dir=store.agents_dir("s1"))
+    await children.append_message("c1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
+    await children.append_message("c2", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
+
+    with store.lock("s1", "the web server"), children.lock("c2", "a subagent turn"):
+        with pytest.raises(SessionLockedError, match="session c2 is in use by a subagent turn"):
+            await store.delete_session("s1")
+
+        assert (await store.load_metadata("s1")) is not None
+        assert children.session_exists("c1")
+        # The locks taken before the refusal were released.
+        children.lock("c1", "test").release()
+
+
 def test_a_holder_arriving_while_a_delete_removes_the_lock_file_keeps_its_session(
     store: SessionStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -262,6 +289,34 @@ async def test_load_totals_folds_the_raw_timeline_including_rewound_turns(store:
     totals = await store.load_totals("s1")
     assert totals.usage == {"input_tokens": 150, "cache_read_tokens": 80, "output_tokens": 15}
     assert totals.cost == pytest.approx({"input": 0.013, "output": 0.012, "total": 0.025})
+
+
+async def test_totals_include_every_subagent_timeline(store: SessionStore) -> None:
+    def assistant(cost: float) -> ConversationMessage:
+        return {
+            "role": "assistant",
+            "content": [],
+            "meta": {"usage": {"input_tokens": 10, "output_tokens": 1}, "cost": {"total": cost}},
+        }
+
+    await store.record_user_turn("s1", cwd="/tmp", text="hi")
+    await store.append_message("s1", assistant(0.01))
+    children = SessionStore(data_dir=store.agents_dir("s1"))
+    await children.append_message("c1", assistant(0.02))
+    await children.append_message("c1", assistant(0.03))
+    await children.append_message("c2", assistant(0.04))
+    # A child directory without a timeline yet adds nothing.
+    children.session_dir("c3").mkdir()
+
+    totals = await store.load_totals("s1")
+    data = await store.load_session("s1")
+
+    assert totals.usage == {"input_tokens": 40, "output_tokens": 4}
+    assert totals.cost == {"total": pytest.approx(0.1)}
+    assert data is not None
+    assert data["totals"] == totals
+    # Subagent sessions never appear in the catalog.
+    assert [session["id"] for session in await store.list_sessions()] == ["s1"]
 
 
 async def test_load_totals_skips_records_without_usage_or_cost(store: SessionStore) -> None:

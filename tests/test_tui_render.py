@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 from conftest import TerminalHarness
 from rich.console import Console
+from rich.text import Text
 
 from mycode import (
     CancelledEvent,
@@ -26,8 +27,8 @@ from mycode import (
 )
 from mycode.messages import ConversationMessage, TextBlock, text_block
 from mycode_cli.sessions import SessionTotals
-from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
-from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
+from mycode_cli.tui.render import TurnRenderer, agent_transcript, history_preview, job_lines
+from mycode_cli.tui.theme import ERROR, ERROR_MARKER, MUTED, PENDING_MARKER, THINKING_SYMBOL, TOOL_MARKER
 
 
 def test_history_preview_renders_recent_turns() -> None:
@@ -123,6 +124,28 @@ async def _render_turn(
     renderer = TurnRenderer(harness.terminal, model=model, context_window=context_window, session_base=session_base)
     ended = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
     return ended, harness.text()
+
+
+def _agent_start(call_id: str, description: str, *, background: bool = False) -> ToolStartEvent:
+    args: dict[str, Any] = {"description": description, "prompt": "do it"}
+    if background:
+        args["background"] = True
+    return ToolStartEvent(tool_call={"type": "tool_use", "id": call_id, "name": "agent", "input": args})
+
+
+def _agent_metadata(
+    *, status: str = "completed", tool_calls: int = 1, duration_ms: int = 1000, cost: float | None = None
+) -> dict[str, Any]:
+    return {
+        "agent": "general",
+        "session_id": "1",
+        "background": False,
+        "status": status,
+        "tool_calls": tool_calls,
+        "duration_ms": duration_ms,
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+        "cost": None if cost is None else {"total": cost},
+    }
 
 
 class TestTurnRenderer:
@@ -311,6 +334,102 @@ class TestTurnRenderer:
 
         assert f"{TOOL_MARKER} Read  b.py\n{TOOL_MARKER} WebFetch  https://a.test\n  error: timed out\n" in rendered
 
+    async def test_agent_call_shows_its_stats_and_reply_and_counts_its_cost(self, harness: TerminalHarness) -> None:
+        reply = "\n".join(f"line {index}" for index in range(7))
+        _, rendered = await _render_turn(
+            harness,
+            [
+                _agent_start("1", "Find the config loader"),
+                ToolOutputEvent(tool_use_id="1", output="Read config.py\n"),
+                ToolDoneEvent(
+                    tool_use_id="1",
+                    output=f'{reply}\n\n[Agent 1 finished: 12 tool calls, 45s. Continue it with resume="1".]',
+                    is_error=False,
+                    metadata=_agent_metadata(tool_calls=12, duration_ms=45_210, cost=0.03),
+                ),
+                _agent_start("2", "Scan the tests", background=True),
+                ToolDoneEvent(
+                    tool_use_id="2",
+                    output="Started agent in background: Scan the tests\nAgent id: 2",
+                    is_error=False,
+                    metadata={"agent": "general", "session_id": "2", "background": True},
+                ),
+                UsageEvent(context_tokens=None, turn_cost={"total": 0.01}, turn_usage={}, turn_duration_ms=None),
+            ],
+            session_cost_base=0.40,
+        )
+
+        # The reply tail replaces the summary lines; the notice for the model is left out.
+        assert (
+            f"{TOOL_MARKER} Agent  Find the config loader  12 tools · 45s · $0.03\n"
+            "  … +2 lines\n  line 2\n  line 3\n  line 4\n  line 5\n  line 6\n"
+            f"{TOOL_MARKER} Agent  Scan the tests  background\n"
+        ) in rendered
+        assert "Read config.py" not in rendered
+        assert "[Agent" not in rendered
+        # The session total includes the blocking child's spend.
+        assert "m · $0.44" in rendered
+
+    async def test_stopped_agent_call_shows_its_stats_reply_and_error(self, harness: TerminalHarness) -> None:
+        _, rendered = await _render_turn(
+            harness,
+            [
+                _agent_start("1", "Find the config loader"),
+                ToolDoneEvent(
+                    tool_use_id="1",
+                    output="partial answer\n\nerror: cancelled by the user after 2 tool calls",
+                    is_error=True,
+                    metadata=_agent_metadata(status="cancelled", tool_calls=2, duration_ms=3000, cost=0.01),
+                ),
+            ],
+        )
+
+        assert (
+            f"{TOOL_MARKER} Agent  Find the config loader  2 tools · 3s · $0.01\n"
+            "  partial answer\n  error: cancelled by the user after 2 tool calls\n"
+        ) in rendered
+
+    async def test_failed_agent_call_shows_the_reply_and_its_error_without_stats(
+        self, harness: TerminalHarness
+    ) -> None:
+        _, rendered = await _render_turn(
+            harness,
+            [
+                _agent_start("1", "Find the config loader"),
+                ToolDoneEvent(
+                    tool_use_id="1",
+                    output="partial answer\n\nerror: provider down",
+                    is_error=True,
+                    metadata=_agent_metadata(status="failed", tool_calls=2, duration_ms=3000, cost=0.01),
+                ),
+            ],
+        )
+
+        assert f"{TOOL_MARKER} Agent  Find the config loader\n  partial answer\n  error: provider down\n" in rendered
+
+    async def test_running_agent_shows_its_summary_lines_in_the_tail(self, harness: TerminalHarness) -> None:
+        renderer = TurnRenderer(harness.terminal, model="m", context_window=None)
+        summary = "".join(f"Read file{index}.py\n" for index in range(7))
+        agent = _EventAgent(
+            [
+                _agent_start("1", "Find the config loader"),
+                ToolOutputEvent(tool_use_id="1", output=summary),
+                ToolDoneEvent(tool_use_id="1", output="done", is_error=False, metadata=_agent_metadata()),
+            ],
+            delay=0.1,
+        )
+
+        async def main() -> None:
+            await renderer.render(cast(Any, agent), "hi")
+
+        await harness.terminal.run(main)
+
+        rendered = harness.text()
+        assert "Agent  Find the config loader" in rendered
+        assert "… +2 lines" in rendered
+        assert "Read file6.py" in rendered
+        assert "Read file1.py" not in rendered
+
     async def test_finish_prints_context_and_session_cost(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
             harness,
@@ -455,6 +574,84 @@ class TestJobLines:
 
         assert header.cell_len <= 60
         assert header.plain.endswith("…  exit 0")
+
+
+def _agent_job_block(reply: str, *, status: str = "completed") -> TextBlock:
+    job = {
+        "tool_use_id": "toolu_1",
+        "name": "agent",
+        "label": "Scan the tests",
+        "session_id": "toolu_1",
+        "status": status,
+        "tool_calls": 12,
+        "duration_ms": 45_210,
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+        "cost": {"total": 0.03},
+    }
+    return text_block(f"Agent finished: Scan the tests\n\n{reply}", meta={"job": job})
+
+
+class TestAgentJobLines:
+    def test_finished_agent_shows_its_stats_and_the_reply_tail(self) -> None:
+        reply = "\n".join(f"line {index}" for index in range(6))
+
+        rendered = _plain(job_lines(_agent_job_block(reply), 80))
+
+        assert rendered == (
+            f"{TOOL_MARKER} Agent finished  Scan the tests  12 tools · 45s · $0.03\n"
+            "  … +1 lines\n  line 1\n  line 2\n  line 3\n  line 4\n  line 5\n"
+        )
+
+    def test_stopped_agent_shows_its_error_under_a_failed_marker(self) -> None:
+        [header, *body] = job_lines(_agent_job_block("partial\n\nerror: cancelled", status="cancelled"), 80)
+
+        assert header.plain == f"{TOOL_MARKER} Agent stopped  Scan the tests  12 tools · 45s · $0.03"
+        assert header.spans[0].style == ERROR
+        assert [line.plain for line in body] == ["  partial", "  error: cancelled"]
+        assert body[-1].style == ERROR
+
+    def test_failed_agent_names_the_failure(self) -> None:
+        [header, *_] = job_lines(_agent_job_block("error: provider down", status="failed"), 80)
+
+        assert header.plain == f"{TOOL_MARKER} Agent failed  Scan the tests  12 tools · 45s · $0.03"
+        assert header.spans[0].style == ERROR
+
+
+def test_agent_transcript_prints_every_turn_between_rules() -> None:
+    messages: list[ConversationMessage] = [
+        {"role": "user", "content": [{"type": "text", "text": f"question {index}"}]} for index in range(4)
+    ]
+    messages.append({"role": "assistant", "content": [{"type": "text", "text": "the answer"}]})
+
+    rendered = _plain(agent_transcript("Find the config loader", messages, width=80))
+
+    assert rendered.startswith("── Agent: Find the config loader ──\n\n❯ question 0\n")
+    assert rendered.endswith("❯ question 3\nthe answer\n\n── end ──\n")
+
+
+def test_agent_transcript_shows_a_call_without_a_result_as_pending() -> None:
+    messages: list[ConversationMessage] = [
+        {"role": "user", "content": [{"type": "text", "text": "look around"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "c1", "name": "read", "input": {"path": "a.py"}},
+                {"type": "tool_use", "id": "c2", "name": "bash", "input": {"command": "rg foo"}},
+            ],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "output": "x", "is_error": False}]},
+    ]
+
+    lines = agent_transcript("Look around", messages, width=80)
+
+    rendered = _plain(lines)
+    assert f"{TOOL_MARKER} Read  a.py\n{PENDING_MARKER} Bash  rg foo\n" in rendered
+    pending = next(line for line in lines if isinstance(line, Text) and line.plain.startswith(PENDING_MARKER))
+    assert pending.spans[0].style == MUTED
+
+
+def test_empty_agent_transcript_says_so() -> None:
+    assert _plain(agent_transcript("New task", [], width=80)) == "── Agent: New task ──\n\nno messages\n\n── end ──\n"
 
 
 def test_history_preview_shows_background_results_as_tool_cards() -> None:

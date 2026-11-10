@@ -1,4 +1,4 @@
-"""Background bash jobs: one registry per session that outlives agent runs."""
+"""Background jobs (bash commands and subagents): one registry per session that outlives agent runs."""
 
 from __future__ import annotations
 
@@ -16,16 +16,34 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BackgroundJob:
     tool_use_id: str
+    # The tool that started the job: ``bash`` or ``agent``.
+    name: str
     label: str
-    pid: int
     started_at: str
-    # Drains the process output and calls ``BackgroundJobs.notify`` on exit.
+    # Drains the job's output and calls ``BackgroundJobs.notify`` when it ends.
     task: asyncio.Task[None]
-    # Kills the process group; the drain task then ends normally with the signal's exit code.
+    # Stops the job (kills the process group, cancels the subagent); the drain
+    # task then ends normally and still delivers the result.
     kill: Callable[[], None]
+    # The bash process.
+    pid: int | None = None
+    # The subagent's child session id.
+    session_id: str | None = None
+    # Hands a message to the running subagent; ``False`` when it is finishing its turn.
+    steer: Callable[[str], bool] | None = None
 
     def info(self) -> dict[str, Any]:
-        return {"tool_use_id": self.tool_use_id, "label": self.label, "pid": self.pid, "started_at": self.started_at}
+        info: dict[str, Any] = {
+            "tool_use_id": self.tool_use_id,
+            "name": self.name,
+            "label": self.label,
+            "started_at": self.started_at,
+        }
+        if self.pid is not None:
+            info["pid"] = self.pid
+        if self.session_id is not None:
+            info["session_id"] = self.session_id
+        return info
 
 
 class BackgroundJobs:
@@ -62,8 +80,13 @@ class BackgroundJobs:
         if self.on_change is not None:
             self.on_change(event, job)
 
+    def find(self, session_id: str) -> BackgroundJob | None:
+        """Return the live subagent job running the child session ``session_id``."""
+
+        return next((job for job in self.jobs if job.session_id == session_id), None)
+
     def kill(self, tool_use_id: str) -> bool:
-        """Kill a live job's process; its result is still delivered, with the signal's exit code."""
+        """Stop a live job; its result is still delivered."""
 
         for job in self.jobs:
             if job.tool_use_id == tool_use_id:

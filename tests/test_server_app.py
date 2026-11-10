@@ -6,12 +6,14 @@ import asyncio
 import copy
 import json
 import shlex
+import string
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from threading import Event as ThreadEvent
+from types import SimpleNamespace
 from typing import Any, cast, override
 
 import httpx2
@@ -27,7 +29,7 @@ from mycode.messages import ConversationMessage, RewindMarker, build_message, te
 from mycode.models import ModelMetadata
 from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
-from mycode_cli.background import BackgroundJobs
+from mycode_cli.background import BackgroundJob, BackgroundJobs, job_id
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager, RunState
@@ -1129,14 +1131,19 @@ class _JobApp:
 
 
 @asynccontextmanager
-async def _job_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter: object) -> AsyncGenerator[_JobApp]:
+async def _job_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter: object, *, permission: str = "yolo"
+) -> AsyncGenerator[_JobApp]:
     home = tmp_path / "home"
     home.mkdir()
     # Background commands here are compound shell commands.
-    (home / "config.json").write_text(json.dumps({"permission": "yolo"}), encoding="utf-8")
+    (home / "config.json").write_text(json.dumps({"permission": permission}), encoding="utf-8")
     monkeypatch.setenv("MYCODE_HOME", str(home))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    # New subagents are named child_a, child_b, ... in start order, never after their call.
+    names = (f"child_{letter}" for letter in string.ascii_lowercase)
+    monkeypatch.setattr("mycode_cli.agent_tool.uuid4", lambda: SimpleNamespace(hex=next(names)))
     app = create_api_app()
     async with (
         app.router.lifespan_context(app),
@@ -1434,6 +1441,9 @@ async def test_events_stream_announces_run_start_and_finish(tmp_path: Path, monk
         }
         stream = asyncio.create_task(app(scope, receive, send))
         await asyncio.wait_for(subscribed.wait(), 5)
+        # The stream opens with a comment, before any event, so a client
+        # behind a proxy that holds the headers until the body starts connects now.
+        assert await asyncio.wait_for(body.get(), 5) == b": connected\n\n"
 
         async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
             response = await client.post(
@@ -1512,3 +1522,400 @@ async def test_wake_whose_message_fails_to_commit_suspends_and_keeps_the_result(
     assert wake.status == "failed"
     assert [event["type"] for event in later] == ["run_finished"]
     assert len(adapter.requests) == 2
+
+
+# Subagents
+
+
+def _call(tool_use_id: str, name: str, tool_input: dict[str, Any], cost: float) -> ConversationMessage:
+    return {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": tool_use_id, "name": name, "input": tool_input}],
+        "meta": {"stop_reason": "tool_use", "cost": {"total": cost}},
+    }
+
+
+def _priced_reply(text: str, cost: float) -> ConversationMessage:
+    return {"role": "assistant", "content": [{"type": "text", "text": text}], "meta": {"cost": {"total": cost}}}
+
+
+def _delegate(cost: float = 0.01) -> ConversationMessage:
+    """A parent turn whose call ``toolu_agent`` starts a blocking subagent."""
+
+    return _call("toolu_agent", "agent", {"description": "Find things", "prompt": "look around"}, cost)
+
+
+async def _next_run_event(runs: RunManager, run_id: str, event_type: str) -> dict[str, Any]:
+    async with asyncio.timeout(5):
+        async for event in runs.stream_events(run_id, 0):
+            if event["type"] == event_type:
+                return event
+    raise AssertionError(f"{event_type!r} never emitted")
+
+
+async def test_blocking_agent_runs_as_a_child_run_of_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = _ScriptedAdapter(
+        _delegate(0.01),
+        # The child writes a file, which the parent's user must allow.
+        _call("toolu_write", "bash", {"command": f"echo hi > {tmp_path / 'out.txt'}"}, 0.02),
+        _priced_reply("found it", 0.03),
+        _priced_reply("done", 0.1),
+        hold=2,
+    )
+    async with (
+        _job_app(tmp_path, monkeypatch, adapter, permission="safe") as app,
+        app.runs.subscribe() as published,
+    ):
+        parent = await app.chat("delegate")
+        request = await _next_run_event(app.runs, parent.id, "permission_request")
+        decided = await app.client.post(
+            f"/api/runs/{parent.id}/decide", json={"request_id": request["request_id"], "decision": "allow"}
+        )
+        assert decided.status_code == 200, decided.text
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        running = (await app.client.get("/api/sessions/s1/agents/child_a")).json()
+        parent_running = (await app.client.get("/api/sessions/s1")).json()
+        adapter.release.set()
+        await app.wait(parent)
+        finished = (await app.client.get("/api/sessions/s1/agents/child_a")).json()
+        session = (await app.client.get("/api/sessions/s1")).json()
+        lifecycle = [
+            (event["type"], event["session_id"], event["run"]["kind"])
+            for event in (published.get_nowait() for _ in range(published.qsize()))
+            if event["type"].startswith("run_")
+        ]
+
+    # The child's request waits on the parent's run and names the child.
+    assert (request["tool_use_id"], request["tool_name"], request["agent"]) == ("toolu_write", "bash", "Find things")
+    assert (tmp_path / "out.txt").read_text() == "hi\n"
+    assert lifecycle == [
+        ("run_started", "s1", "chat"),
+        ("run_started", "s1/child_a", "agent"),
+        ("run_finished", "s1/child_a", "agent"),
+        ("run_finished", "s1", "chat"),
+    ]
+
+    # A reconnecting parent learns which child the running call started.
+    [announced, *_] = [event for event in parent_running["pending_events"] if event["type"] == "tool_output"]
+    assert (announced["tool_use_id"], announced["metadata"]) == (
+        "toolu_agent",
+        {"agent": "general", "session_id": "child_a", "background": False},
+    )
+
+    # While its turn runs, the child's snapshot overlays its own run.
+    assert running["active_run"]["kind"] == "agent"
+    assert running["active_run"]["session_id"] == "s1/child_a"
+    assert {key: running["session"][key] for key in ("id", "agent", "description", "provider")} == {
+        "id": "child_a",
+        "agent": "general",
+        "description": "Find things",
+        "provider": "anthropic",
+    }
+    assert "last" not in running["session"]
+    assert [message["role"] for message in running["messages"]] == ["user", "assistant", "user"]
+    assert running["messages"][0]["content"] == [{"type": "text", "text": "look around"}]
+    assert running["session_cost"] == pytest.approx({"total": 0.02})
+    assert running["jobs"] == []
+
+    assert finished["active_run"] is None
+    assert finished["session"]["last"]["status"] == "completed"
+    assert [message["role"] for message in finished["messages"]] == ["user", "assistant", "user", "assistant"]
+    assert finished["session_cost"] == pytest.approx({"total": 0.05})
+    assert finished["pending"] == {"steers": [], "queue": []}
+    assert finished["jobs"] == []
+
+    # The parent's live totals take the child's spend from the agent result.
+    [agent_done] = [event for event in parent.events if event["type"] == "tool_done"]
+    assert agent_done["tool_use_id"] == "toolu_agent"
+    assert agent_done["metadata"]["session_id"] == "child_a"
+    assert agent_done["metadata"]["cost"] == pytest.approx({"total": 0.05})
+    assert [event for event in parent.events if event["type"] == "usage"][-1]["session_cost"] == pytest.approx(
+        {"total": 0.16}
+    )
+    assert session["session_cost"] == pytest.approx({"total": 0.16})
+
+
+async def test_stopping_the_parent_stops_its_blocking_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _ScriptedAdapter(_delegate(), _priced_reply("unused", 0.03), _priced_reply("unused", 0.1), hold=1)
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as published:
+        parent = await app.chat("delegate")
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        cancelled = await app.client.post(f"/api/runs/{parent.id}/cancel")
+        child = (await app.client.get("/api/sessions/s1/agents/child_a")).json()
+        finished = [
+            event["run"]
+            for event in (published.get_nowait() for _ in range(published.qsize()))
+            if event["type"] == "run_finished"
+        ]
+
+    assert cancelled.json()["run"]["status"] == "cancelled"
+    assert [(run["session_id"], run["status"]) for run in finished] == [
+        ("s1/child_a", "cancelled"),
+        ("s1", "cancelled"),
+    ]
+    assert child["session"]["last"]["status"] == "cancelled"
+    [agent_done] = [event for event in parent.events if event["type"] == "tool_done"]
+    assert agent_done["tool_use_id"] == "toolu_agent"
+    assert agent_done["is_error"] is True
+    assert agent_done["output"].endswith(
+        "error: cancelled by the user after 0 tool calls; the agent's transcript is kept, "
+        'continue it with resume="child_a"'
+    )
+
+
+async def test_steering_a_subagent_run_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _ScriptedAdapter(_delegate(), _priced_reply("found it", 0.03), _priced_reply("done", 0.1), hold=1)
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        parent = await app.chat("delegate")
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        child = await app.runs.get_active_run("s1/child_a")
+        assert child is not None
+        refused = await app.client.post(f"/api/runs/{child.id}/steer", json={"message": "x", "input_id": "s1"})
+        adapter.release.set()
+        await app.wait(parent)
+
+    assert child.kind == "agent"
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["message"] == "run is not a chat"
+
+
+async def test_agent_snapshot_validates_and_finds_the_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _job_app(tmp_path, monkeypatch, _ScriptedAdapter()) as app:
+        missing = await app.client.get("/api/sessions/s1/agents/child_missing")
+        # Created by the child lock before agent.json is written.
+        (app.store.agents_dir("s1") / "child_starting").mkdir(parents=True)
+        starting = await app.client.get("/api/sessions/s1/agents/child_starting")
+        # Hand-edited, without the fields its readers use.
+        edited = app.store.agents_dir("s1") / "child_edited"
+        edited.mkdir()
+        (edited / "agent.json").write_text(json.dumps({"agent": "general", "provider": "p", "model": "m"}))
+        malformed = await app.client.get("/api/sessions/s1/agents/child_edited")
+        invalid = await app.client.get("/api/sessions/s1/agents/bad.id")
+
+    assert missing.status_code == 404
+    assert starting.status_code == 404
+    assert malformed.status_code == 404
+    assert invalid.status_code == 422
+
+
+async def test_log_route_streams_logs_and_follows_live_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _job_app(tmp_path, monkeypatch, _ScriptedAdapter()) as app:
+        logs = app.store.tool_output_dir("s1")
+        logs.mkdir(parents=True)
+        (logs / "bash-toolu_done.log").write_bytes(b"line 1\nline 2\n")
+
+        whole = await app.client.get("/api/sessions/s1/logs/toolu_done")
+        tail = await app.client.get("/api/sessions/s1/logs/toolu_done", params={"after": 7})
+        refused = [
+            await app.client.get(path)
+            for path in ("/api/sessions/s1/logs/toolu_missing", "/api/sessions/s1/logs/bad.id")
+        ]
+
+        live = logs / "bash-toolu_live.log"
+        live.write_bytes(b"first\n")
+        exited = asyncio.Event()
+
+        async def run() -> None:
+            await exited.wait()
+
+        app.jobs.add(
+            BackgroundJob(
+                tool_use_id="toolu_live",
+                name="bash",
+                label="tail",
+                started_at="",
+                task=asyncio.create_task(run()),
+                kill=exited.set,
+                pid=1,
+            )
+        )
+        following = asyncio.create_task(app.client.get("/api/sessions/s1/logs/toolu_live"))
+        await asyncio.sleep(0.3)
+        assert not following.done()
+        with live.open("ab") as log:
+            log.write(b"second\n")
+        exited.set()
+        followed = await asyncio.wait_for(following, 5)
+
+    assert (whole.status_code, whole.text) == (200, "line 1\nline 2\n")
+    assert whole.headers["content-type"].startswith("text/plain")
+    assert tail.text == "line 2\n"
+    assert [response.status_code for response in refused] == [404, 422]
+    assert followed.text == "first\nsecond\n"
+
+
+class _SessionAdapter:
+    """Answers each session's requests with its next reply; a ``None`` reply waits until the run is stopped."""
+
+    def __init__(self, **replies: list[ConversationMessage | None]) -> None:
+        self.replies = replies
+        self.requests: dict[str, list[list[ConversationMessage]]] = {}
+
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        assert request.session_id is not None
+        self.requests.setdefault(request.session_id, []).append(copy.deepcopy(list(request.messages)))
+        reply = self.replies[request.session_id].pop(0)
+        if reply is None:
+            # Stopping the run cancels the request.
+            await asyncio.Event().wait()
+        else:
+            yield MessageDone(copy.deepcopy(reply))
+
+
+def _background_agent(tool_use_id: str) -> ConversationMessage:
+    """A parent turn whose call ``tool_use_id`` starts a background subagent."""
+
+    return _call(
+        tool_use_id, "agent", {"description": "Find things", "prompt": "look around", "background": True}, 0.01
+    )
+
+
+async def test_a_resume_issued_with_a_background_resume_steers_the_same_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    both = _call(
+        "toolu_again",
+        "agent",
+        {"description": "Again", "prompt": "again", "resume": "child_a", "background": True},
+        0.01,
+    )
+    both["content"].append(
+        {
+            "type": "tool_use",
+            "id": "toolu_more",
+            "name": "agent",
+            "input": {"description": "More", "prompt": "also this", "resume": "child_a"},
+        }
+    )
+    adapter = _SessionAdapter(
+        s1=[
+            _delegate(),
+            _priced_reply("delegated", 0.01),
+            both,
+            _priced_reply("waiting", 0.01),
+            _priced_reply("saw it", 0.01),
+        ],
+        child_a=[_priced_reply("one", 0.02), _priced_reply("first", 0.02), _priced_reply("second", 0.02)],
+    )
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as published:
+        await app.wait(await app.chat("delegate"))
+        parent = await app.chat("again")
+        await app.next_event(published, "job_finished")
+        async with asyncio.timeout(5):
+            while await app.runs.get_active_run("s1") is not None:  # noqa: ASYNC110
+                await asyncio.sleep(0.02)
+
+    [resumed] = [event for event in parent.events if event.get("tool_use_id") == "toolu_more"]
+    assert resumed["output"] == "Message delivered to running agent child_a"
+    assert resumed["metadata"] == {"agent": "general", "session_id": "child_a", "steered": True}
+    # One turn took the prompt: its second request carries it, and its result has the second reply.
+    steered = adapter.requests["child_a"][2][-1]
+    assert steered["meta"].get("steer") is True
+    assert steered["content"] == [{"type": "text", "text": "also this"}]
+    [result] = [
+        block
+        for message in app.store.load_raw_messages_sync("s1")
+        if message["role"] == "user"
+        for block in message["content"]
+        if block["type"] == "text" and job_id(block)
+    ]
+    assert result["text"] == "Agent finished: Again\n\nsecond"
+
+
+async def test_a_stopped_background_agent_wakes_the_session_with_its_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = _SessionAdapter(
+        s1=[_background_agent("toolu_agent"), _priced_reply("started", 0.01), _priced_reply("saw it", 0.01)],
+        child_a=[None],
+    )
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as published:
+        first = await app.chat("delegate")
+        await app.wait(first)
+        [job] = app.jobs.jobs
+        listed = (await app.client.get("/api/sessions/s1")).json()["jobs"]
+
+        stopped = await app.client.delete("/api/sessions/s1/jobs/toolu_agent")
+        await asyncio.wait_for(job.task, 5)
+        events = [published.get_nowait() for _ in range(published.qsize())]
+        wake = await app.runs.get_active_run("s1")
+        assert wake is not None
+        await app.wait(wake)
+
+    assert stopped.status_code == 200, stopped.text
+    [info] = listed
+    assert (info["tool_use_id"], info["name"], info["label"], info["session_id"]) == (
+        "toolu_agent",
+        "agent",
+        "Find things",
+        "child_a",
+    )
+    # The parent's runs and jobs; the child's own run is announced under "s1/child_a".
+    assert [
+        (event["type"], event.get("run", {}).get("id", event.get("job", {}).get("tool_use_id")))
+        for event in events
+        if event["session_id"] == "s1"
+    ] == [
+        ("run_started", first.id),
+        ("job_started", "toolu_agent"),
+        ("run_finished", first.id),
+        ("run_started", wake.id),
+        ("job_finished", "toolu_agent"),
+    ]
+    assert wake.wake is True
+    assert wake.status == "completed"
+    wake_input = adapter.requests["s1"][2][-1]
+    assert _job_ids(wake_input) == ["toolu_agent"]
+    [block] = wake_input["content"]
+    assert block["type"] == "text"
+    assert block["meta"]["job"]["status"] == "cancelled"
+    assert block["text"].startswith("Agent finished: Find things\n\nerror: cancelled by the user")
+
+
+def test_delete_refuses_while_a_subagent_holds_its_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    _seed_session(store, "s1", str(tmp_path))
+    children = SessionStore(data_dir=store.agents_dir("s1"))
+
+    with TestClient(app) as client:
+        with children.lock("child_a", "a subagent turn"):
+            refused = client.delete("/api/sessions/s1")
+            kept = store.session_exists("s1")
+        deleted = client.delete("/api/sessions/s1")
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["message"].startswith("session child_a is in use by a subagent turn")
+    assert kept
+    assert deleted.status_code == 200
+    assert not store.session_dir("s1").exists()
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/sessions/%2e%2e"),
+        ("GET", "/api/sessions/%2e%2e/logs/escape"),
+        ("GET", "/api/sessions/%2e%2e/agents/x"),
+        ("POST", "/api/sessions/%2e%2e/queue"),
+        ("POST", "/api/sessions/%2e%2e/compact"),
+    ],
+)
+def test_session_routes_reject_parent_ids_that_could_leave_the_data_directory(method: str, path: str) -> None:
+    with TestClient(create_app(serve_web=False)) as client:
+        response = client.request(method, path, json={})
+
+    assert response.status_code == 422
+
+
+def test_chat_rejects_a_session_id_the_session_routes_would_refuse() -> None:
+    with TestClient(create_app(serve_web=False)) as client:
+        response = client.post("/api/chat", json={"message": "hi", "session_id": "release.1"})
+
+    assert response.status_code == 422

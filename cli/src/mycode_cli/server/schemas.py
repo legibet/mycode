@@ -8,9 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from mycode.messages import CompactTrigger
 from mycode.usage import Cost
-from mycode_cli.sessions import SessionInfo
+from mycode_cli.sessions import ID_PATTERN, SessionInfo
 
-RunKind = Literal["chat", "compact"]
+# ``agent``: one turn of a subagent, keyed ``<parent id>/<child id>``.
+RunKind = Literal["chat", "compact", "agent"]
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 
 
@@ -69,7 +70,8 @@ class UserInputRequest(BaseModel):
 class ChatRequest(UserInputRequest):
     """Request body for /chat."""
 
-    session_id: str = "default"
+    # Validated like the session routes' path parameter: it names a directory.
+    session_id: str = Field(default="default", pattern=ID_PATTERN)
     provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
     cwd: str | None = None
@@ -107,12 +109,13 @@ class StreamEvent(BaseModel):
     tool_call: ToolCallPayload | None = None  # tool_start
     tool_use_id: str | None = None
     output: str | None = None  # tool_output + tool_done
-    metadata: dict[str, Any] | None = None  # tool_done
+    metadata: dict[str, Any] | None = None  # tool_output + tool_done
     is_error: bool | None = None  # tool_done
     message: str | dict[str, Any] | None = None  # error text, or the user_message record
     request_id: str | None = None  # permission_request + permission_resolved
     tool_name: str | None = None  # permission_request
     preview: str | None = None  # permission_request
+    agent: str | None = None  # permission_request: the description of the subagent asking
     decision: str | None = None  # permission_resolved
     trigger: CompactTrigger | None = None  # compact
     context_tokens: int | None = None  # usage
@@ -123,6 +126,19 @@ class StreamEvent(BaseModel):
     turn_duration_ms: int | None = None  # usage
     session_usage: dict[str, int] | None = None  # usage; composed by the run manager
     session_cost: Cost | None = None  # usage; composed by the run manager
+
+
+class AgentSessionInfo(BaseModel):
+    """The ``session`` of a subagent snapshot, read from the child's ``agent.json``."""
+
+    id: str
+    agent: str
+    description: str
+    provider: str
+    model: str
+    created_at: str
+    # The last finished turn; absent while the first turn runs and after a crash.
+    last: dict[str, Any] | None = None
 
 
 class DecideRequest(BaseModel):

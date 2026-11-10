@@ -39,6 +39,7 @@ _BUILTIN_SLASH_NAMES = (
     "rewind",
     "model",
     "effort",
+    "agents",
     "quit",
     "exit",
 )
@@ -147,7 +148,7 @@ class Skill:
     body: str
 
 
-def _parse_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
+def parse_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
     """Extract YAML frontmatter and the instruction body."""
 
     lines = text.splitlines()
@@ -182,7 +183,7 @@ def _parse_skill_md(path: Path, fallback_name: str) -> Skill | None:
         logger.warning("Failed to read skill file: %s", path)
         return None
 
-    parsed = _parse_frontmatter(text)
+    parsed = parse_frontmatter(text)
     if not parsed:
         logger.debug("No valid frontmatter in %s", path)
         return None

@@ -57,7 +57,7 @@ mycode -h                         help; also works on every subcommand
 
 Options before a subcommand configure the interactive session only; pass `run` options after `run`. Full reference, output formats, and exit codes: [docs/cli.md](docs/cli.md).
 
-Interactive slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/quit` (alias `/exit`)
+Interactive slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/agents` `/quit` (alias `/exit`)
 
 Inside the TUI, `@path` attaches a file to the message and a standalone `/<skill-name>` token loads a discovered skill.
 

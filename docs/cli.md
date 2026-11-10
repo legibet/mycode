@@ -51,7 +51,7 @@ git diff | mycode run "review this change"
 mycode run < task.md
 ```
 
-The run has no approval prompt, so `permission.mode: "ask"` acts as `deny` (`docs/tools.md`). Background `bash` commands are unavailable.
+The run has no approval prompt, so `permission.mode: "ask"` acts as `deny` (`docs/tools.md`), for subagents too. Background `bash` commands and background agents are unavailable.
 
 `--format` selects the output: `text` (default), `json`, or `jsonl`; see Output formats.
 
@@ -105,7 +105,7 @@ Between `init` and `result`, each line is an SDK event's `to_dict()` payload: `t
 
 - `result` is the text of the last committed assistant message, `""` if there is none.
 - `is_error` is `true` exactly when the exit code is `1`. `error` is the agent's error message (for example `max_turns reached`), the message of an exception that ended the run (such as a failed session write), or, for a permission denial, the denied tool's output; `null` otherwise. An error does not clear `result`: the model may still have replied.
-- `usage` and `cost` are the turn totals from the last `usage` event, in the `Usage` / `Cost` shapes of `docs/sdk.md`; `cost` is in USD and `null` when unknown.
+- `usage` and `cost` are the turn totals from the last `usage` event plus the `usage` and `cost` of every `agent` result in the turn, in the `Usage` / `Cost` shapes of `docs/sdk.md`; `cost` is in USD and `null` when unknown.
 - `duration_ms` is wall-clock time from the start of the run.
 - `permission_denials` lists each denied tool call as `{"tool_use_id", "name", "input"}`.
 

@@ -31,11 +31,13 @@ mycode/src/mycode/        # SDK package
 
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint: commands, options, `run` output formats
-  runtime.py              # build_agent() shared by TUI and server
+  runtime.py              # build_agent() shared by TUI and server; subagent building and host
   sessions.py             # CLI session catalog and lifecycle
   workspace.py            # CLI workspace/tool dependency context
   tools.py                # local tools (read, write, edit, bash)
   web_tools.py            # configurable webfetch / websearch tools
+  agent_tool.py           # agent tool: subagent turns, blocking or background, resume
+  agents.py               # subagent definitions: built-in general + agents/*.md discovery
   config.py               # layered JSON config, config validation, provider resolution, paths
   state.py                # remembered provider/model/effort (~/.mycode/cli.json)
   permissions.py          # tool permission policy + before_tool hook
@@ -54,7 +56,7 @@ scripts/
 
 ## Message Model
 
-One block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted roles: `user` · `assistant`, plus inline `compact` and `rewind` markers. Tool results persist as `user` messages carrying `tool_result` blocks; provider-specific extras live in `meta.native`. `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. The provider adapter substitutes post-compact history lazily per request (`prepare_messages`); visible state and JSONL keep the real history. Schema, record types, and replay rules: `docs/sessions.md`.
+One block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted roles: `user` · `assistant`, plus inline `compact` and `rewind` markers. Tool results persist as `user` messages carrying `tool_result` blocks; provider-specific extras live in `meta.native`. `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. The provider adapter substitutes post-compact history lazily per request (`prepare_messages`); visible state and JSONL keep the real history. A subagent's transcript is a child session in `<session>/agents/<child_id>/`; the parent's history holds only the `agent` call, its result, and any background notification. Schema, record types, and replay rules: `docs/sessions.md`.
 
 ## Agent Loop
 
@@ -87,6 +89,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/providers/*`                                                                              | `docs/providers.md`                           |
 | `cli/src/mycode_cli/main.py` (commands, options, `run` output)                                               | `docs/cli.md`                                 |
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, `permissions.py`                                              | `docs/tools.md`                               |
+| `cli/src/mycode_cli/agent_tool.py`, `agents.py`, subagent building in `runtime.py`                           | `docs/subagents.md`                           |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                                                      | `docs/api.md`                                 |
 | `cli/src/mycode_cli/config.py`, `state.py`                                                                   | `docs/config.md`                              |
 | `cli/src/mycode_cli/system_prompt.py` (skills / instructions discovery)                                      | `cli/README.md`                               |

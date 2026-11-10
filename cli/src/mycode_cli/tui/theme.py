@@ -89,4 +89,6 @@ PROMPT_CHAR = "❯"
 CHOICE_MARKER = "›"
 THINKING_SYMBOL = "◇"
 TOOL_MARKER = "●"
+# A tool call without a result yet, in a static transcript.
+PENDING_MARKER = "○"
 ERROR_MARKER = "✕"

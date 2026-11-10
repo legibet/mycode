@@ -9,6 +9,7 @@ import json
 import shlex
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast, override
 
@@ -27,6 +28,7 @@ from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode_cli.background import BackgroundJob
 from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
+from mycode_cli.runtime import LocalAgentHost
 from mycode_cli.sessions import SessionLockedError, SessionStore
 from mycode_cli.tui.chat import (
     TerminalChat,
@@ -97,9 +99,14 @@ async def test_new_session_keeps_configured_tools_and_uses_the_new_session_direc
     await chat._leave_session("new")
 
     assert "websearch" in tools
+    assert "agent" in tools
     assert [spec.name for spec in chat.agent.tools.specs] == tools
-    assert chat.agent.deps == CliDeps(
-        cwd=tmp_path, tool_output_dir=store.tool_output_dir("new"), web=settings.web, jobs=chat.jobs
+    deps = cast(CliDeps, chat.agent.deps)
+    # The subagent host is rebuilt with the agent, for the new session.
+    assert isinstance(deps.agents, LocalAgentHost)
+    assert deps.agents.session_id == "new"
+    assert deps == CliDeps(
+        cwd=tmp_path, tool_output_dir=store.tool_output_dir("new"), web=settings.web, jobs=chat.jobs, agents=deps.agents
     )
 
 
@@ -405,6 +412,47 @@ class TestToolReview:
         blocked, *after = harness.statuses()
         assert blocked == {"state": "blocked", "app": "mycode", "kind": "permission", "msg": "Bash rm -rf build"}
         assert [report["state"] for report in after] == (["clear"] if cancelled else ["working", "clear"])
+
+    async def test_parallel_reviews_queue_one_at_a_time_and_name_their_agent(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        results: list[str] = []
+
+        class _ParallelAgent(_AttachmentAgent):
+            context_window = None
+
+            async def achat(self, message: str, *, on_persist: object = None) -> AsyncIterator[Event]:
+                # Two blocking subagents ask at once.
+                async def review(number: int) -> None:
+                    request = ToolReviewRequest(
+                        f"call-{number}", "bash", f"make {number}", PermissionConfig(), agent=f"Task {number}"
+                    )
+                    results.append(f"Task {number}: {await chat._review_tool_call(request)}")
+
+                await asyncio.gather(review(1), review(2))
+                yield TextEvent(delta="done")
+
+        chat = _chat(_ParallelAgent(), tmp_path, harness)
+
+        async def main() -> None:
+            async def drive_input() -> None:
+                for key in ["\r", "\x1b[B", "\r"]:
+                    await asyncio.sleep(0.1)
+                    harness.pipe.send_text(key)
+
+            task = asyncio.create_task(drive_input())
+            renderer = await chat._turn_renderer()
+            await renderer.render(chat.agent, "build both")
+            await task
+
+        await chat.terminal.run(main)
+
+        rendered = harness.text()
+        # One chooser at a time: the second request shows only once the first is decided.
+        assert results == ["Task 1: allow", "Task 2: deny"]
+        assert rendered.index("agent: Task 1") < rendered.index("agent: Task 2")
+        for number in (1, 2):
+            assert f"{TOOL_MARKER} Review  Bash  agent: Task {number}\n  make {number}\n" in rendered
 
 
 class _TurnAgent(_AttachmentAgent):
@@ -965,6 +1013,8 @@ class TestBackgroundJobs:
         assert chat.jobs.pending == []
         rendered = harness.text()
         assert rendered.count(self.CARD) == 1
+        # The reply is spaced from the card like any other block.
+        assert f"{self.CARD}\n  line a\n  line b\n\n" in rendered
         assert "answer 1" in rendered
 
     async def test_esc_holds_wakes_until_the_next_user_message(
@@ -1040,7 +1090,13 @@ class TestBackgroundJobs:
             tasks.append(task)
             old_jobs.add(
                 BackgroundJob(
-                    tool_use_id="toolu_1", label="sleep 100", pid=1, started_at="", task=task, kill=lambda: None
+                    tool_use_id="toolu_1",
+                    name="bash",
+                    label="sleep 100",
+                    pid=1,
+                    started_at="",
+                    task=task,
+                    kill=lambda: None,
                 )
             )
             await chat._start_new_session()
@@ -1054,3 +1110,144 @@ class TestBackgroundJobs:
         assert chat.jobs.deliver == chat._deliver_jobs
         assert chat.session_id != "s"
         assert cast(CliDeps, chat.agent.deps).jobs is chat.jobs
+
+
+def _write_child(
+    store: SessionStore,
+    child_id: str,
+    description: str,
+    *,
+    created_at: str,
+    last: dict[str, Any] | None = None,
+    messages: list[ConversationMessage] | None = None,
+) -> None:
+    directory = store.agents_dir("s") / child_id
+    directory.mkdir(parents=True)
+    info: dict[str, Any] = {
+        "agent": "general",
+        "description": description,
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "created_at": created_at,
+    }
+    if last is not None:
+        info["last"] = last
+    (directory / "agent.json").write_text(json.dumps(info))
+    (directory / "messages.jsonl").write_text("".join(json.dumps(message) + "\n" for message in messages or []))
+
+
+_CHILD_MESSAGES: list[ConversationMessage] = [
+    build_message("user", [text_block("find the loader")]),
+    build_message("assistant", [text_block("It is in config.py")]),
+]
+
+
+class TestAgentsCommand:
+    """``/agents`` lists the session's subagents, running ones first, and shows or stops the chosen one."""
+
+    @staticmethod
+    async def _run(harness: TerminalHarness, chat: TerminalChat, keys: list[str]) -> None:
+        async def main() -> None:
+            async def drive_input() -> None:
+                for key in keys:
+                    await asyncio.sleep(0.1)
+                    harness.pipe.send_text(key)
+
+            task = asyncio.create_task(drive_input())
+            assert await chat._run_command("/agents")
+            await task
+            for job in chat.jobs.jobs:
+                job.task.cancel()
+
+        await harness.terminal.run(main)
+
+    @staticmethod
+    def _add_running(chat: TerminalChat, kills: list[str]) -> None:
+        _write_child(
+            chat.store,
+            "c-run",
+            "Watch the build",
+            created_at="2026-01-03T00:00:00+00:00",
+            messages=[build_message("user", [text_block("watch it")])],
+        )
+
+        async def run_forever() -> None:
+            await asyncio.Event().wait()
+
+        chat.jobs.add(
+            BackgroundJob(
+                tool_use_id="toolu_run",
+                name="agent",
+                label="Watch the build",
+                started_at=datetime.now(UTC).isoformat(),
+                task=asyncio.create_task(run_forever()),
+                kill=lambda: kills.append("toolu_run"),
+                session_id="c-run",
+            )
+        )
+
+    async def test_lists_running_then_finished_newest_first_and_prints_the_chosen_transcript(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        chat = _chat(_AttachmentAgent(), tmp_path, harness)
+        last = {
+            "tool_use_id": "c-done",
+            "status": "completed",
+            "tool_calls": 3,
+            "duration_ms": 45_210,
+            "usage": {"input_tokens": 10},
+            "cost": {"total": 0.03},
+            "finished_at": "2026-01-01T00:05:00+00:00",
+        }
+        _write_child(
+            chat.store,
+            "c-done",
+            "Find the config loader",
+            created_at="2026-01-01T00:00:00+00:00",
+            last=last,
+            messages=_CHILD_MESSAGES,
+        )
+        _write_child(chat.store, "c-lost", "Old crash", created_at="2026-01-02T00:00:00+00:00")
+        kills: list[str] = []
+        self._add_running(chat, kills)
+
+        # Down twice from the running row: past the interrupted child to the finished one.
+        await self._run(harness, chat, ["\x1b[B", "\x1b[B", "\r"])
+
+        rendered = harness.text()
+        running = rendered.index("Watch the build  0s")
+        lost = rendered.index("Old crash  interrupted")
+        done = rendered.index("Find the config loader  completed · 3 tools · 45s · $0.03")
+        assert running < lost < done
+        assert (
+            "── Agent: Find the config loader ──\n\n❯ find the loader\nIt is in config.py\n\n── end ──\n"
+        ) in rendered
+        assert kills == []
+
+    @pytest.mark.parametrize(
+        ("keys", "stopped"),
+        [pytest.param(["\r", "\r"], True, id="stop"), pytest.param(["\r", "\x1b[B", "\r"], False, id="transcript")],
+    )
+    async def test_running_agent_can_be_stopped_or_show_its_transcript_so_far(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path, keys: list[str], stopped: bool
+    ) -> None:
+        chat = _chat(_AttachmentAgent(), tmp_path, harness)
+        kills: list[str] = []
+        self._add_running(chat, kills)
+
+        await self._run(harness, chat, keys)
+
+        rendered = harness.text()
+        assert kills == (["toolu_run"] if stopped else [])
+        assert (f"{TOOL_MARKER} stopped Watch the build\n" in rendered) is stopped
+        transcript = "── Agent: Watch the build ──\n\n❯ watch it\n\n── end ──\n"
+        assert (transcript in rendered) is not stopped
+
+    async def test_session_without_agents_says_so(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        chat = _chat(_AttachmentAgent(), tmp_path, harness)
+
+        await self._run(harness, chat, [])
+
+        assert "no agents in this session\n" in harness.text()

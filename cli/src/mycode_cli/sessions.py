@@ -13,6 +13,8 @@ On disk:
     messages.jsonl   # SDK-owned message timeline
     tool-output/     # scratch area for large tool outputs
     lock             # flock(2) target naming the process that has the session open
+    agents/          # child sessions of subagents, each laid out like a session
+      <child_id>/    # plus agent.json; no meta.json, so the catalog never lists them
 
 ``updated_at`` tracks user-visible session changes (new user turn, rewind,
 manual compact), not every persisted message.
@@ -42,6 +44,10 @@ from mycode_cli.config import resolve_cwd
 DEFAULT_SESSION_TITLE = "New chat"
 _META_FIELDS = ("cwd", "title", "created_at", "updated_at")
 _LOCK_FILE = "lock"
+_AGENTS_DIR = "agents"
+# Session ids (a uuid hex or ``default``), tool call ids, and subagent ids
+# name directories and files under the data directory; nothing else is accepted.
+ID_PATTERN = r"^[A-Za-z0-9_-]{1,128}$"
 
 
 class SessionInfo(TypedDict):
@@ -189,6 +195,11 @@ class SessionStore(TimelineStore):
 
         return self.session_dir(session_id) / "tool-output"
 
+    def agents_dir(self, session_id: str) -> Path:
+        """The directory of the session's subagent sessions, the ``data_dir`` of their store."""
+
+        return self.session_dir(session_id) / _AGENTS_DIR
+
     def lock(self, session_id: str, holder: str) -> SessionLock:
         """Claim ``session_id`` for this process, or raise ``SessionLockedError`` naming its holder.
 
@@ -295,23 +306,36 @@ class SessionStore(TimelineStore):
         await asyncio.to_thread(bump)
 
     async def delete_session(self, session_id: str) -> None:
-        """Delete the session's catalog, timeline, and tool output.
+        """Delete the session's catalog, timeline, tool output, and subagent sessions.
 
-        The caller holds the session's lock. The lock file stays, so releasing
-        the lock removes it and then the directory (``SessionLock.release``).
+        The caller holds the session's lock. Every subagent's lock is taken
+        first, so a subagent turn still running raises ``SessionLockedError``
+        and nothing is deleted. The lock file stays, so releasing the lock
+        removes it and then the directory (``SessionLock.release``).
         """
 
         self._search_texts.pop(session_id, None)
 
         def delete() -> None:
-            with suppress(FileNotFoundError):
-                for entry in self.session_dir(session_id).iterdir():
-                    if entry.name == _LOCK_FILE:
-                        continue
-                    if entry.is_dir() and not entry.is_symlink():
-                        shutil.rmtree(entry)
-                    else:
-                        entry.unlink()
+            agents_dir = self.agents_dir(session_id)
+            child_locks: list[SessionLock] = []
+            try:
+                if agents_dir.is_dir():
+                    children = SessionStore(data_dir=agents_dir)
+                    for entry in agents_dir.iterdir():
+                        if entry.is_dir():
+                            child_locks.append(children.lock(entry.name, "a session delete"))
+                with suppress(FileNotFoundError):
+                    for entry in self.session_dir(session_id).iterdir():
+                        if entry.name == _LOCK_FILE:
+                            continue
+                        if entry.is_dir() and not entry.is_symlink():
+                            shutil.rmtree(entry)
+                        else:
+                            entry.unlink()
+            finally:
+                for lock in child_locks:
+                    lock.release()
 
         await asyncio.to_thread(delete)
 
@@ -346,13 +370,30 @@ class SessionStore(TimelineStore):
 
         return await asyncio.to_thread(self._read_meta, session_id)
 
+    def _session_totals(self, session_id: str, records: list[ConversationMessage | RewindMarker]) -> SessionTotals:
+        """Sum ``records``, the session's raw timeline, plus every subagent timeline of the session."""
+
+        totals = sum_session_totals(records)
+        agents_dir = self.agents_dir(session_id)
+        if not agents_dir.is_dir():
+            return totals
+        children = TimelineStore(data_dir=agents_dir)
+        for entry in agents_dir.iterdir():
+            if entry.is_dir():
+                child = sum_session_totals(children.load_raw_messages_sync(entry.name))
+                totals = totals.add(child.usage, child.cost)
+        return totals
+
     async def load_totals(self, session_id: str) -> SessionTotals:
-        """Sum the session's usage and USD cost over its raw timeline.
+        """Sum the session's usage and USD cost over its raw timeline and its subagents'.
 
         Counts tool loops, compact summaries, and turns discarded by rewind.
         """
 
-        return sum_session_totals(await self.load_raw_messages(session_id))
+        def load() -> SessionTotals:
+            return self._session_totals(session_id, self.load_raw_messages_sync(session_id))
+
+        return await asyncio.to_thread(load)
 
     async def load_session(self, session_id: str) -> SessionData | None:
         """Load metadata, visible messages, and usage totals from one raw timeline read."""
@@ -362,7 +403,7 @@ class SessionStore(TimelineStore):
             if session is None:
                 return None
             raw = self.load_raw_messages_sync(session_id)
-            return {"session": session, "messages": apply_rewind(raw), "totals": sum_session_totals(raw)}
+            return {"session": session, "messages": apply_rewind(raw), "totals": self._session_totals(session_id, raw)}
 
         return await asyncio.to_thread(load)
 

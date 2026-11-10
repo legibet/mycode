@@ -18,8 +18,12 @@ from mycode_cli.permissions import (
     ToolReviewRequest,
     build_permission_hooks,
     classify_tool,
+    narrow_permission,
     permission_decision,
+    usable_tools,
 )
+from mycode_cli.tools import DEFAULT_TOOLS
+from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
 
 _SPEC = ToolSpec(
@@ -60,6 +64,41 @@ def test_permission_decision_uses_level_then_mode() -> None:
     assert permission_decision(PermissionConfig(level="safe", mode="ask"), "standard") == "ask"
     assert permission_decision(PermissionConfig(level="safe", mode="deny"), "standard") == "deny"
     assert permission_decision(PermissionConfig(level="yolo", mode="deny"), "yolo") == "allow"
+
+
+@pytest.mark.parametrize(
+    ("parent", "limit", "expected"),
+    [
+        (PermissionConfig("standard", "ask"), PermissionConfig("readonly", "ask"), PermissionConfig("readonly", "ask")),
+        (PermissionConfig("safe", "ask"), PermissionConfig("yolo", "ask"), PermissionConfig("safe", "ask")),
+        (PermissionConfig("yolo", "ask"), PermissionConfig("yolo", "deny"), PermissionConfig("yolo", "deny")),
+        (
+            PermissionConfig("readonly", "deny"),
+            PermissionConfig("standard", "ask"),
+            PermissionConfig("readonly", "deny"),
+        ),
+    ],
+)
+def test_narrow_permission_never_widens(
+    parent: PermissionConfig, limit: PermissionConfig, expected: PermissionConfig
+) -> None:
+    assert narrow_permission(parent, limit) == expected
+
+
+@pytest.mark.parametrize(
+    ("permission", "names"),
+    [
+        (PermissionConfig("readonly", "ask"), ["read", "write", "edit", "bash", "webfetch", "websearch", "test"]),
+        (PermissionConfig("readonly", "deny"), ["read", "bash"]),
+        (PermissionConfig("safe", "deny"), ["read", "write", "edit", "bash"]),
+        (PermissionConfig("standard", "deny"), ["read", "write", "edit", "bash", "webfetch", "websearch"]),
+        (PermissionConfig("yolo", "deny"), ["read", "write", "edit", "bash", "webfetch", "websearch", "test"]),
+    ],
+)
+def test_usable_tools_drop_tools_every_call_of_which_is_denied(permission: PermissionConfig, names: list[str]) -> None:
+    tools = [*DEFAULT_TOOLS, *build_web_tools(WebConfig(search="exa")), _SPEC]
+
+    assert [spec.name for spec in usable_tools(tools, permission)] == names
 
 
 def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> None:
@@ -150,6 +189,22 @@ def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> 
         "rg TODO src",
         "find src -name '*.py'",
         "command -v pytest",
+        "env",
+        "sort -rn counts.txt",
+        "uniq -c sorted.txt",
+        "uniq input",
+        "rg --pretty foo",
+        # A pipeline of readonly commands only reads.
+        "rg foo | head",
+        "git log --oneline | head -20",
+        "grep foo a.txt | sort | uniq -c | wc -l",
+        "rg 'a|b' src",
+        # So does a list of them, and 2>&1 writes nothing.
+        "ls src && git status",
+        "rg foo || rg bar",
+        "pwd; ls",
+        "rg foo 2>&1 | head",
+        "git log -5 2>&1",
     ],
 )
 def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
@@ -173,6 +228,21 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
         # awk/sed are scripting languages and must not be auto-readonly.
         "awk '{print $1}' file.txt",
         "sed 's/foo/bar/' file.txt",
+        # env with arguments runs a command.
+        "env sh -c 'rm -rf dist'",
+        "env FOO=1 ls",
+        "sort -o out.txt in.txt",
+        "sort -rno out.txt in.txt",
+        "sort --output=out.txt in.txt",
+        "sort --out out.txt in.txt",
+        # The second operand is the output file.
+        "uniq in.txt out.txt",
+        "uniq - out.txt",
+        # After -- every word is an operand, even one that starts with a dash.
+        "uniq -- input -output",
+        "rg --pre ./decode foo",
+        "rg --pre-glob '*.gz' foo",
+        "echo hi 2>&1",
     ],
 )
 def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
@@ -189,9 +259,28 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
         "ls\npwd",
         "sleep 1 &",
         "ls && rm -rf dist",
-        "grep foo a.txt | wc -l",
+        "ls || rm -rf dist",
+        "ls |& head",
+        "rg foo | xargs rm",
+        "rg foo | sort -o out.txt",
+        "rg foo |",
+        "rg '|' src",
+        # Process substitution runs its command.
+        "cat <(rm -rf dist)",
+        "cat >(tee out.txt)",
+        "cat a.txt |> out.txt",
         "echo hi > out.txt",
-        "echo hi 2>&1",
+        "ls 2>&1 > out.txt",
+        "ls 2>&1>out.txt",
+        "ls 12>&1",
+        "ls '2>&1' | head > out.txt",
+        "ls; rm -rf dist",
+        "ls && echo done",
+        "ls;",
+        "ls &&& pwd",
+        "(ls; pwd)",
+        "ls & pwd",
+        "rg foo $(cat list) | head",
         "sed -i 's/a/b/' file.txt",
         "find . -name x -delete",
         "find . -name x -exec rm {} ;",
@@ -207,6 +296,15 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
 def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
     check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "yolo"
+
+
+def test_agent_tool_is_safe_with_its_description_as_preview(tmp_path: Path) -> None:
+    check = classify_tool(
+        _ctx("agent", {"description": "Find the config loader", "prompt": "..."}, cwd=tmp_path),
+        project=str(tmp_path),
+        skill_roots=[],
+    )
+    assert check == ("safe", "Find the config loader")
 
 
 def test_background_bash_keeps_its_level_and_marks_the_preview(tmp_path: Path) -> None:
@@ -225,7 +323,9 @@ async def test_permission_hook_denies_without_interactive_review_without_cancell
     )
     result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
-    assert result == ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)
+    assert result == ToolExecutionResult(
+        output=f"{PERMISSION_DENIED_OUTPUT}: bash call needs level standard, this agent allows safe", is_error=True
+    )
 
 
 @pytest.mark.asyncio

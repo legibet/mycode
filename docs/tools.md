@@ -2,7 +2,7 @@
 
 Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`, `cli/src/mycode_cli/permissions.py`
 
-The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider. They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. `read`, `webfetch`, and `websearch` are parallel-safe, so consecutive calls to them run concurrently; `write`, `edit`, and `bash` run one at a time. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
+The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider, and `agent` everywhere except inside a subagent (`docs/subagents.md`). They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. `read`, `webfetch`, `websearch`, and `agent` are parallel-safe, so consecutive calls to them run concurrently; `write`, `edit`, and `bash` run one at a time. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
 
 ## read
 
@@ -55,9 +55,9 @@ Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `
 - **Log file**: opened before the call returns and flushed after every chunk, so `read` on it shows live output. Reads inside `tool_output_dir` need no approval.
 - **Notification**: when the command exits, the host delivers a text block carrying `meta.job` (`docs/sessions.md`) to the model: a header `Background bash finished (pid <pid>, exit code <N>): <command>` and `Log: <path>`, then the bounded tail in the foreground format. A process ended by a signal reports the negative return code. The header carries the exit code, so no `[exit code: N]` trailer follows. When the output cannot be captured (such as a log file that cannot be written), the notification still arrives, with `error: <reason>` after whatever output was captured.
 - **Delivery**: the result is steered into the running turn, becomes the next turn when the running turn is finishing, or wakes the idle session as a new turn. Stop (TUI Esc, web Stop) or a permission `Deny` suspends wakes until the user's next message, which then carries the result ahead of its text. The result waits in the session's job registry until a run has committed it, so an interrupted or failed run never loses it, and it is never delivered twice.
-- **Lifecycle**: `/rewind`, `rewind_to`, `/new`, a completed `/resume`, session delete, and server shutdown kill the session's background commands and drop undelivered results. The web UI's Stop (`DELETE /api/sessions/{id}/jobs/{tool_use_id}`) and a `kill <pid>` through a normal `bash` call end one command early; its result is still delivered, with the signal's negative exit code. No command survives the process.
+- **Lifecycle**: `/rewind`, `rewind_to`, `/new`, a completed `/resume`, session delete, and server shutdown kill the session's background commands and agents and drop undelivered results. The web UI's Stop (`DELETE /api/sessions/{id}/jobs/{tool_use_id}`) and a `kill <pid>` through a normal `bash` call end one command early; its result is still delivered, with the signal's negative exit code. No command survives the process.
 - **Permission**: classified from the command text as usual; the review preview ends with `(background)`.
-- **Hosts without delivery**: `mycode run` ends with the turn, so it returns `error: background commands are not available in this mode` with `is_error=true` and spawns nothing.
+- **Hosts without delivery**: `mycode run` and subagents have no job registry, so they return `error: background commands are not available in this mode` with `is_error=true` and spawn nothing.
 
 ## webfetch
 
@@ -84,10 +84,22 @@ Searches with the configured Tavily or Exa provider and returns matching pages w
 
 `permissions.py` classifies every tool call in a `before_tool` hook before execution. The `permission.level`/`mode` fields are defined in `docs/config.md`; this section is the classification contract.
 
-Both interactive surfaces (TUI and web) prompt for approval when `mode: "ask"` and the call falls outside the configured level. Non-interactive `mycode run` has no prompt and treats `ask` as `deny`. Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. An explicit user `Deny` cancels the current run in both TUI and web.
+Both interactive surfaces (TUI and web) prompt for approval when `mode: "ask"` and the call falls outside the configured level. Non-interactive `mycode run` has no prompt and treats `ask` as `deny`. Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. Its output names the tool, its tier, and the configured level, after the fixed prefix `error: permission denied`:
 
-The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
+```text
+error: permission denied: bash call needs level yolo, this agent allows readonly
+```
 
-`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` or a discovered skill's directory are `readonly`, including follow-up reads of truncated webfetch output.
+An explicit user `Deny` returns `error: permission denied by user` and cancels the current run in both TUI and web.
+
+The shell checks are intentionally simple and conservative. `readonly` is a heuristic allowlist over the command text, not a sandbox: it means only that the command matches programs and flags known not to write or run anything else. A command is `readonly`, `standard`, or `yolo`:
+
+- Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code; so is any command not on the allowlist.
+- Allowlisted programs lose `readonly` with arguments that write or execute: `env` with any argument, `sort` with `-o`/`--output`, `uniq` with a second file operand, `rg` with `--pre`/`--pre-glob`.
+- A list or pipeline (split at `|`, `||`, `&&`, and `;` outside quotes and escapes) is `readonly` when every segment is, and `yolo` otherwise.
+- An unquoted `2>&1` word only merges stderr into stdout, so it is ignored: `rg foo 2>&1 | head` is `readonly`.
+- Other compound commands (`|&`, `&`, other redirections, subshells, command and process substitution, newlines) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) are `yolo`: they require level `yolo` or `mode: "ask"` approval.
+
+`agent` is `safe`, with the description as its preview; the child's own calls are checked when it makes them. `webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` or a discovered skill's directory are `readonly`, including follow-up reads of truncated webfetch output.
 
 Local webfetch intentionally does not block localhost, private address ranges, or cloud metadata endpoints. The machine is the trust boundary. The permission prompt displays the initial URL only; redirects are followed up to five times without another prompt, so a public URL can redirect to a private or metadata address.

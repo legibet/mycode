@@ -35,6 +35,9 @@ file and adapts it for the UI.
     "tavily": {"api_key": "${TAVILY_API_KEY}"},
     "exa": {"api_key": "..."}
   },
+  "subagent": {
+    "models": ["deepseek/deepseek-v4-flash", "claude-sonnet-5-5"]
+  },
   "providers": {
     "<name>": {
       "type": "<adapter-id>",
@@ -64,6 +67,7 @@ file and adapts it for the UI.
 - `web.fetch` — `local`, `tavily`, or `exa`; default `local`. `webfetch` is always registered.
 - `web.search` — `off`, `tavily`, or `exa`; default `off`. `websearch` is registered only when a provider is selected. Use explicit `off` in a project config to override a provider inherited from the global config.
 - `web.tavily.api_key` / `web.exa.api_key` — literal value or `${ENV_NAME}` reference, shared by fetch and search for that provider
+- `subagent.models` — model references (`docs/cli.md`, Model selection) the model may choose from for a new subagent; the first usable one is the subagents' default model (`docs/subagents.md`). Default `[]`: subagents run on the session's model and the model has no choice. A later layer replaces the list. The web settings panel keeps it but does not edit it
 - `providers.<name>` — a provider name must not contain `/`, which separates provider and model in a `provider/model` reference (`docs/cli.md`, Model selection)
 - `providers.<name>.type` — internal adapter id (see `docs/providers.md`). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.

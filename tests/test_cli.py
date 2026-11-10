@@ -70,6 +70,26 @@ class _PermissionDeniedThenReplyAgent(_BaseAgent):
             )
 
 
+class _SubagentAgent(_BaseAgent):
+    async def achat(self, message: str, *, on_persist=None):
+        call = {"type": "tool_use", "id": "call-a", "name": "agent", "input": {}}
+        yield ToolStartEvent(tool_call=cast(Any, call))
+        yield ToolDoneEvent(
+            tool_use_id="call-a",
+            output="done",
+            is_error=False,
+            metadata={"usage": {"input_tokens": 100, "output_tokens": 10}, "cost": {"total": 0.05}},
+        )
+        if on_persist:
+            await on_persist({"role": "assistant", "content": [{"type": "text", "text": "Done"}]})
+        yield UsageEvent(
+            context_tokens=10,
+            turn_usage={"input_tokens": 8, "output_tokens": 2},
+            turn_cost={"total": 0.01},
+            turn_duration_ms=5,
+        )
+
+
 def _settings(tmp_path: Path) -> Any:
     return SimpleNamespace(cwd=str(tmp_path), permission=SimpleNamespace(level="safe"))
 
@@ -104,7 +124,13 @@ class TestRunNoninteractive:
         assert captured.out == ""
         assert captured.err == "provider error\n"
 
-    @pytest.mark.parametrize("output", [PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT])
+    @pytest.mark.parametrize(
+        "output",
+        [
+            f"{PERMISSION_DENIED_OUTPUT}: bash call needs level yolo, this agent allows safe",
+            PERMISSION_DENIED_BY_USER_OUTPUT,
+        ],
+    )
     async def test_prints_permission_denials_to_stderr(
         self, output: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -141,6 +167,17 @@ class TestRunNoninteractive:
         assert result["result"] == "Persisted final answer"
         assert result["usage"] == {"input_tokens": 8, "output_tokens": 2}
         assert result["cost"] == {"total": 0.01}
+
+    @pytest.mark.asyncio
+    async def test_json_usage_and_cost_include_subagents(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = await _run(_SubagentAgent(), tmp_path, "json")
+
+        result = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert result["usage"] == {"input_tokens": 108, "output_tokens": 12}
+        assert result["cost"] == {"total": pytest.approx(0.06)}
 
     @pytest.mark.asyncio
     async def test_json_reports_permission_denials(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -281,6 +318,7 @@ def test_run_reads_prompt_from_args_and_stdin(
         return 0
 
     monkeypatch.setattr(main, "build_agent", lambda **kwargs: None)
+    monkeypatch.setattr(main, "LocalAgentHost", lambda **kwargs: None)
     monkeypatch.setattr(main, "run_noninteractive", fake_run)
     monkeypatch.setattr(
         main,

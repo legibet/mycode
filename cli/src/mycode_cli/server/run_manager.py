@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, override
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
-from mycode.agent import PersistCallback
+from mycode.agent import Agent, PersistCallback
 from mycode.events import (
     CancelledEvent,
     CompactEvent,
@@ -23,11 +24,15 @@ from mycode.events import (
     UsageEvent,
     UserMessageEvent,
 )
-from mycode.messages import ConversationMessage, merge_user_messages
+from mycode.messages import ConversationMessage, merge_user_messages, user_text_message
 from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
+from mycode_cli.runtime import LocalAgentHost
 from mycode_cli.server.schemas import RunKind, RunStatus, StreamEvent
 from mycode_cli.sessions import SessionLock, SessionTotals, sum_session_totals
+from mycode_cli.workspace import ChildOutcome, ChildTurn, OnChildComplete
+
+logger = logging.getLogger(__name__)
 
 RunCompletionCallback = Callable[[str], Awaitable[None]]
 QueuedTurnCallback = Callable[[ConversationMessage], Awaitable[None]]
@@ -104,6 +109,11 @@ class RunState:
     on_complete: RunCompletionCallback | None = None
     # Records a queued turn in the session catalog once the run takes it.
     on_queued_turn: QueuedTurnCallback | None = None
+    # An agent run: called in the run's task with every SDK event the run
+    # buffers, for the ``agent`` tool following the child turn ...
+    tap: Callable[[Event], None] | None = None
+    # ... and given the turn's outcome before the run is reported finished.
+    on_child_complete: OnChildComplete | None = None
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -158,6 +168,12 @@ class RunManager:
         jobs = self._jobs.get(session_id)
         return [job.info() for job in jobs.jobs] if jobs is not None else []
 
+    def has_job(self, session_id: str, tool_use_id: str) -> bool:
+        """Whether the session has the running background job ``tool_use_id``."""
+
+        jobs = self._jobs.get(session_id)
+        return jobs is not None and any(job.tool_use_id == tool_use_id for job in jobs.jobs)
+
     def kill_job(self, session_id: str, tool_use_id: str) -> bool:
         """Kill one running background job; ``False`` when the session has no such job."""
 
@@ -197,15 +213,26 @@ class RunManager:
         user_message: ConversationMessage,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
+        kind: Literal["chat", "agent"] = "chat",
         session_base: SessionTotals | None = None,
         wake: bool = False,
         lock: SessionLock | None = None,
         on_queued_turn: QueuedTurnCallback | None = None,
+        tap: Callable[[Event], None] | None = None,
+        on_child_complete: OnChildComplete | None = None,
     ) -> dict[str, Any]:
+        """Start a run of ``agent.achat(user_message)``.
+
+        A ``chat`` run is a session's turn and continues with its queue. An
+        ``agent`` run is one subagent turn (``ServerAgentHost``), keyed
+        ``<parent id>/<child id>``: the ``agent`` tool holds the child's lock,
+        and the run takes no queue and has no jobs.
+        """
+
         return await self._start(
             session_id=session_id,
             cwd=cwd,
-            kind="chat",
+            kind=kind,
             user_message=user_message,
             base_messages=base_messages,
             agent=agent,
@@ -213,6 +240,8 @@ class RunManager:
             wake=wake,
             lock=lock,
             on_queued_turn=on_queued_turn,
+            tap=tap,
+            on_child_complete=on_child_complete,
         )
 
     async def start_compact(
@@ -252,6 +281,8 @@ class RunManager:
         wake: bool = False,
         lock: SessionLock | None = None,
         on_queued_turn: QueuedTurnCallback | None = None,
+        tap: Callable[[Event], None] | None = None,
+        on_child_complete: OnChildComplete | None = None,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
         session_base = session_base or SessionTotals()
@@ -275,6 +306,8 @@ class RunManager:
                 wake=wake,
                 lock=lock,
                 on_queued_turn=on_queued_turn,
+                tap=tap,
+                on_child_complete=on_child_complete,
             )
             state.task = asyncio.create_task(self._run(state), name=f"mycode-run-{state.id}")
             self._active_by_session[session_id] = state
@@ -411,13 +444,15 @@ class RunManager:
         state = await self.get_run(run_id)
         if not state:
             return None
-        self._request_cancel(state)
+        self.request_cancel(state)
         if state.task is not None:
             # Request cancellation must not interrupt the run's own cleanup.
             await asyncio.shield(state.task)
         return state.info()
 
-    def _request_cancel(self, state: RunState) -> None:
+    def request_cancel(self, state: RunState) -> None:
+        """Stop a running run like a user Stop, once; ``cancel_run`` also waits for it to end."""
+
         # Repeated task.cancel() can interrupt a tool's cancellation cleanup.
         if state.cancel_requested or state.status != "running":
             return
@@ -437,7 +472,7 @@ class RunManager:
             tasks = []
             for state in self._runs_by_id.values():
                 if state.task is not None and not state.task.done():
-                    self._request_cancel(state)
+                    self.request_cancel(state)
                     tasks.append(state.task)
         await asyncio.gather(*tasks)
         await asyncio.gather(*(jobs.close() for jobs in self._jobs.values()))
@@ -457,8 +492,13 @@ class RunManager:
         tool_call_id: str,
         tool_name: str,
         preview: str,
+        agent: str | None = None,
     ) -> ToolReviewDecision:
-        """Emit permission_request, await the user's decision, then emit permission_resolved."""
+        """Emit permission_request, await the user's decision, then emit permission_resolved.
+
+        ``agent`` names the blocking subagent whose call this is; its request
+        waits on the parent session's run.
+        """
 
         async with self._lock:
             state = self._active_by_session.get(session_id)
@@ -478,6 +518,7 @@ class RunManager:
                 "tool_use_id": tool_call_id,
                 "tool_name": tool_name,
                 "preview": preview,
+                "agent": agent,
             },
         )
 
@@ -485,7 +526,7 @@ class RunManager:
         try:
             decision = await future
             if decision == "deny":
-                self._request_cancel(state)
+                self.request_cancel(state)
             return decision
         except asyncio.CancelledError:
             # Treat cancellation as deny so the agent loop unwinds via its own cancel check.
@@ -514,13 +555,38 @@ class RunManager:
         return True
 
     async def _run(self, state: RunState) -> None:
-        """Run the agent and store streamed events."""
+        """Run the agent, store streamed events, and finish the run."""
 
+        started = time.monotonic()
+        last_error: str | None = None
         # A run can be stopped before the SDK operation has started.
-        if state.cancel_requested:
-            await self._append_event(state, CancelledEvent())
-            await self._finish_run(state, status="cancelled")
-            return
+        cancelled = state.cancel_requested
+        if not cancelled:
+            last_error, cancelled = await self._drive(state)
+
+        status: RunStatus = "completed"
+        terminal: ErrorEvent | CancelledEvent | None = None
+        if last_error is not None:
+            status, terminal = "failed", ErrorEvent(message=last_error)
+        elif cancelled or state.cancel_requested:
+            status, terminal = "cancelled", CancelledEvent()
+            await self._append_event(state, terminal)
+
+        if state.on_child_complete is not None:
+            outcome = ChildOutcome.from_records(
+                state.agent.messages[len(state.base_messages) :],
+                terminal=terminal,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
+            try:
+                await state.on_child_complete(outcome)
+            except Exception:
+                # The outcome is set; the run still ends with the turn's status.
+                logger.exception("subagent turn completion failed")
+        await self._finish_run(state, status=status, error=last_error)
+
+    async def _drive(self, state: RunState) -> tuple[str | None, bool]:
+        """Run the agent operation; return the run's error and whether it was cancelled."""
 
         last_error: str | None = None
         cancelled = False
@@ -558,6 +624,9 @@ class RunManager:
                             await self._append_event(state, event)
                     if last_error is not None or cancelled:
                         break
+                    if state.kind == "agent":
+                        # One turn, no queue; the run stays active until its outcome is saved.
+                        break
                     # Stop requests and enqueue() run on this loop, so they land
                     # either before this hold or once the next achat() has its
                     # run: a stop after the take still ends the queued turn.
@@ -588,17 +657,7 @@ class RunManager:
             # errors) and by persist/cleanup failures during a chat turn.
             last_error = str(exc)
             await self._append_event(state, ErrorEvent(message=last_error))
-
-        if last_error is not None:
-            await self._finish_run(state, status="failed", error=last_error)
-            return
-
-        if cancelled or state.cancel_requested:
-            await self._append_event(state, CancelledEvent())
-            await self._finish_run(state, status="cancelled")
-            return
-
-        await self._finish_run(state, status="completed")
+        return last_error, cancelled
 
     async def _record_commit(self, state: RunState, message: ConversationMessage) -> None:
         async with state.condition:
@@ -632,6 +691,18 @@ class RunManager:
                 case CompactEvent() if compact_totals is not None:
                     state.session_totals = state.session_base.add(compact_totals.usage, compact_totals.cost)
                 case ToolDoneEvent():
+                    # A subagent's spend is in its own session, not in this
+                    # run's turn totals: a blocking agent call's result
+                    # metadata, the only tool metadata with ``usage`` and
+                    # ``cost``, carries what the child turn cost, which joins
+                    # the session base and the current totals, so snapshots
+                    # and later usage events include it. Disk totals count the
+                    # child session itself, so nothing is counted twice when
+                    # the session is loaded.
+                    metadata = event.metadata or {}
+                    usage, cost = metadata.get("usage"), metadata.get("cost")
+                    state.session_base = state.session_base.add(usage, cost)
+                    state.session_totals = state.session_totals.add(usage, cost)
                     retained = [
                         buffered
                         for buffered in state.events
@@ -649,6 +720,8 @@ class RunManager:
                 removed = state.events.pop(0)
                 state.tool_output_bytes -= _tool_output_bytes(removed)
             state.condition.notify_all()
+            if state.tap is not None and not isinstance(event, dict):
+                state.tap(event)
 
     async def _finish_run(self, state: RunState, *, status: RunStatus, error: str | None = None) -> None:
         for fut in state.pending_decisions.values():
@@ -706,3 +779,82 @@ class RunManager:
             ]
             for run_id in stale_run_ids:
                 self._runs_by_id.pop(run_id, None)
+
+
+@dataclass(eq=False)
+class AgentRunTurn(ChildTurn):
+    """A child turn run as an agent run; ``cancel()`` stops that run like a user Stop."""
+
+    runs: RunManager = field(kw_only=True)
+    # Set once the run has started; a cancel before then is latched and applied at the start.
+    state: RunState | None = field(default=None, init=False)
+
+    @override
+    def cancel(self) -> None:
+        self.cancel_requested = True
+        if self.state is not None:
+            self.runs.request_cancel(self.state)
+
+
+@dataclass(kw_only=True)
+class ServerAgentHost(LocalAgentHost):
+    """The ``AgentHost`` of the web server: each child turn is an ``agent`` run of
+    the run manager, keyed ``<parent id>/<child id>``, streaming on its own run id.
+
+    Built with the parent agent for each chat and wake run, with the parent's review.
+    """
+
+    runs: RunManager
+
+    @override
+    def start_turn(
+        self, agent: Agent, message: str, *, session_id: str, description: str, on_complete: OnChildComplete
+    ) -> AgentRunTurn:
+        queue: asyncio.Queue[Event | None] = asyncio.Queue()
+
+        async def events() -> AsyncIterator[Event]:
+            while (event := await queue.get()) is not None:
+                yield event
+
+        turn = AgentRunTurn(agent=agent, events=events(), runs=self.runs)
+
+        def tap(event: Event) -> None:
+            turn.run_started()
+            queue.put_nowait(event)
+
+        async def complete(outcome: ChildOutcome) -> None:
+            turn.outcome = outcome
+            await on_complete(outcome)
+
+        async def drive() -> None:
+            try:
+                run = await self.runs.start_run(
+                    kind="agent",
+                    session_id=f"{self.session_id}/{session_id}",
+                    cwd=self.settings.cwd,
+                    user_message=user_text_message(message),
+                    base_messages=agent.messages,
+                    agent=agent,
+                    session_base=await self.children.load_totals(session_id),
+                    tap=tap,
+                    on_child_complete=complete,
+                )
+            except Exception as exc:
+                # A turn that cannot start fails like one whose provider failed.
+                failed = ErrorEvent(message=str(exc) or type(exc).__name__)
+                await complete(ChildOutcome.from_records([], terminal=failed, duration_ms=0))
+                return
+            state = await self.runs.get_run(run["id"])
+            assert state is not None
+            assert state.task is not None
+            # A cancel latched before the run existed: _run sees it before
+            # achat() starts, or the stop reaches the started operation.
+            turn.state = state
+            if turn.cancel_requested:
+                self.runs.request_cancel(state)
+            await state.task
+
+        turn.task = asyncio.create_task(drive())
+        # The events end only once the turn, outcome included, is done.
+        turn.task.add_done_callback(lambda _: queue.put_nowait(None))
+        return turn

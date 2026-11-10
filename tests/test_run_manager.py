@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import gc
 from pathlib import Path
-from typing import Any, override
+from typing import Any, cast, override
 
 import pytest
 from conftest import FakeAgent
@@ -25,14 +25,17 @@ from mycode import (
     text_block,
     tool,
 )
-from mycode.messages import ConversationMessage, TextBlock
+from mycode.messages import ConversationMessage, TextBlock, user_text_message
+from mycode.models import resolve_model_metadata
 from mycode.providers.base import MessageDone
 from mycode.usage import Usage
 from mycode_cli.background import BackgroundJob, BackgroundJobs
-from mycode_cli.config import PermissionConfig, Settings
+from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
-from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
-from mycode_cli.sessions import SessionTotals
+from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState, ServerAgentHost
+from mycode_cli.server.schemas import RunStatus
+from mycode_cli.sessions import SessionStore, SessionTotals
+from mycode_cli.workspace import ChildOutcome
 
 pytestmark = pytest.mark.asyncio
 
@@ -622,9 +625,11 @@ async def test_persist_failure_after_cancel_marks_run_failed() -> None:
 class ReviewAgent(ChatOnlyAgent):
     """Fake agent that requests one permission decision mid-stream."""
 
-    def __init__(self, manager: RunManager, session_id: str) -> None:
+    def __init__(self, manager: RunManager, session_id: str, *, agent: str | None = None) -> None:
         self.manager = manager
         self.session_id = session_id
+        # The subagent the request comes from.
+        self.agent = agent
         self.cancelled = False
         self.decision: str | None = None
 
@@ -639,6 +644,7 @@ class ReviewAgent(ChatOnlyAgent):
             tool_call_id="call-1",
             tool_name="bash",
             preview="ls",
+            agent=self.agent,
         )
         yield TextEvent(delta=f"after:{self.decision}")
 
@@ -1608,7 +1614,9 @@ async def test_subscribers_see_job_start_and_finish() -> None:
         await release.wait()
 
     job_task = asyncio.create_task(run_until_killed())
-    job = BackgroundJob(tool_use_id="toolu_a", label="sleep", pid=1, started_at="", task=job_task, kill=release.set)
+    job = BackgroundJob(
+        tool_use_id="toolu_a", name="bash", label="sleep", pid=1, started_at="", task=job_task, kill=release.set
+    )
 
     async with manager.subscribe() as events:
         manager.jobs_for("s1").add(job)
@@ -1636,7 +1644,9 @@ async def test_close_kills_jobs_without_waking_the_session() -> None:
 
     job_task = asyncio.create_task(run_forever())
     jobs.add(
-        BackgroundJob(tool_use_id="toolu_a", label="sleep", pid=1, started_at="", task=job_task, kill=lambda: None)
+        BackgroundJob(
+            tool_use_id="toolu_a", name="bash", label="sleep", pid=1, started_at="", task=job_task, kill=lambda: None
+        )
     )
     await manager.start_run(
         cwd="/work",
@@ -1672,3 +1682,287 @@ async def test_snapshot_never_lists_job_results_as_pending_input() -> None:
     assert [message["meta"] for message in snapshot["pending"]["queue"]] == [{"input_id": "q1"}]
     agent.release.set()
     await _wait_for_run_task(manager, state.id)
+
+
+# Agent runs: subagent turns of the server host
+
+
+CHILD_USAGE = UsageEvent(
+    context_tokens=10,
+    turn_usage={"input_tokens": 10, "output_tokens": 2},
+    turn_cost={"total": 0.25},
+    turn_duration_ms=None,
+)
+
+
+class ChildAgent(ChatOnlyAgent):
+    """A subagent turn that commits its prompt and a priced reply; with ``release`` it waits for it first."""
+
+    def __init__(self, release: asyncio.Event | None = None) -> None:
+        self.messages: list[ConversationMessage] = []
+        self.release = release
+        self.calls = 0
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
+        if self.release is not None:
+            self.release.set()
+
+    async def _commit(self, message: ConversationMessage, on_persist) -> None:
+        self.messages.append(message)
+        if on_persist is not None:
+            await on_persist(message)
+
+    async def achat(self, user_input, on_persist=None):
+        self.calls += 1
+        await self._commit(user_input, on_persist)
+        yield RetryEvent(attempt=2, max_attempts=3, delay_seconds=1.0, reason="http_status", message="overloaded")
+        yield TextEvent(delta="working")
+        if self.release is not None:
+            await self.release.wait()
+        if self.cancelled:
+            yield CancelledEvent()
+            return
+        await self._commit(
+            build_message(
+                "assistant",
+                [text_block("done")],
+                meta={"usage": {"input_tokens": 10, "output_tokens": 2}, "cost": {"total": 0.25}},
+            ),
+            on_persist,
+        )
+        yield CHILD_USAGE
+
+
+def _host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manager: RunManager) -> ServerAgentHost:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    work = tmp_path / "work"
+    work.mkdir()
+    return ServerAgentHost(
+        runs=manager,
+        store=SessionStore(data_dir=tmp_path / "sessions"),
+        settings=Settings(providers={}, cwd=str(work), project=str(work)),
+        resolved_provider=ResolvedProvider(
+            provider_name="openai",
+            provider="openai",
+            model="gpt-5.5",
+            api_key="k",
+            api_base=None,
+            metadata=resolve_model_metadata(provider="openai", model="gpt-5.5"),
+        ),
+        session_id="parent",
+    )
+
+
+async def test_child_turn_runs_as_an_agent_run_and_reports_its_outcome_before_finishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = RunManager()
+    host = _host(tmp_path, monkeypatch, manager)
+    child = ChildAgent()
+    completed: list[tuple[ChildOutcome, RunStatus, list[str]]] = []
+
+    async with manager.subscribe() as published:
+
+        async def on_complete(outcome: ChildOutcome) -> None:
+            state = turn.state
+            assert state is not None
+            published_types = [published.get_nowait()["type"] for _ in range(published.qsize())]
+            completed.append((outcome, state.status, published_types))
+
+        turn = host.start_turn(
+            cast(Agent, child), "find it", session_id="toolu_1", description="Find it", on_complete=on_complete
+        )
+        events = [event async for event in turn.events]
+        # The events end only once the turn is done, its outcome included.
+        assert turn.task.done()
+        finished = published.get_nowait()
+
+    # The tap carries the SDK events the run buffered; retries are not buffered.
+    assert events == [
+        TextEvent(delta="working"),
+        CHILD_USAGE,
+    ]
+    [(outcome, status_at_completion, published_before)] = completed
+    assert (outcome.status, outcome.text, outcome.tool_calls, outcome.cost) == ("completed", "done", 0, {"total": 0.25})
+    assert turn.outcome is outcome
+    assert status_at_completion == "running"
+    assert published_before == ["run_started"]
+
+    run = finished["run"]
+    assert finished == {"type": "run_finished", "session_id": "parent/toolu_1", "run": run}
+    assert (run["kind"], run["session_id"], run["status"]) == ("agent", "parent/toolu_1", "completed")
+    state = await manager.get_run(run["id"])
+    assert state is not None
+    # The child streams on its own run id, in the SSE shape, with the child's totals.
+    assert [event["type"] for event in state.events] == ["text", "usage"]
+    assert state.events[1]["session_cost"] == {"total": 0.25}
+    assert child.messages[0] == user_text_message("find it")
+    assert await manager.get_active_run("parent/toolu_1") is None
+    assert manager._jobs == {}
+
+
+async def test_child_turn_cancel_before_the_run_starts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = RunManager()
+    host = _host(tmp_path, monkeypatch, manager)
+    child = ChildAgent()
+    outcomes: list[ChildOutcome] = []
+
+    async def on_complete(outcome: ChildOutcome) -> None:
+        outcomes.append(outcome)
+
+    turn = host.start_turn(
+        cast(Agent, child), "find it", session_id="toolu_1", description="Find it", on_complete=on_complete
+    )
+    turn.cancel()
+    events = [event async for event in turn.events]
+
+    assert child.calls == 0
+    assert events == [CancelledEvent()]
+    [outcome] = outcomes
+    assert (outcome.status, outcome.error, outcome.tool_calls) == ("cancelled", "cancelled", 0)
+    assert turn.state is not None
+    assert turn.state.status == "cancelled"
+
+
+async def test_child_turn_cancel_stops_the_running_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = RunManager()
+    host = _host(tmp_path, monkeypatch, manager)
+    child = ChildAgent(release=asyncio.Event())
+    outcomes: list[ChildOutcome] = []
+
+    async def on_complete(outcome: ChildOutcome) -> None:
+        outcomes.append(outcome)
+
+    turn = host.start_turn(
+        cast(Agent, child), "find it", session_id="toolu_1", description="Find it", on_complete=on_complete
+    )
+    assert await anext(turn.events) == TextEvent(delta="working")
+    turn.cancel()
+    rest = [event async for event in turn.events]
+
+    assert child.cancelled is True
+    assert rest == [CancelledEvent()]
+    [outcome] = outcomes
+    assert (outcome.status, outcome.text) == ("cancelled", "")
+    assert turn.state is not None
+    assert turn.state.status == "cancelled"
+    assert turn.state.cancel_requested is True
+
+
+async def test_child_turn_that_cannot_start_fails_with_its_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = RunManager()
+    host = _host(tmp_path, monkeypatch, manager)
+    child = ChildAgent()
+    outcomes: list[ChildOutcome] = []
+
+    async def failing_totals(*_: object) -> None:
+        raise OSError("disk gone")
+
+    async def on_complete(outcome: ChildOutcome) -> None:
+        outcomes.append(outcome)
+
+    monkeypatch.setattr(SessionStore, "load_totals", failing_totals)
+    turn = host.start_turn(
+        cast(Agent, child), "find it", session_id="toolu_1", description="Find it", on_complete=on_complete
+    )
+    events = [event async for event in turn.events]
+
+    assert events == []
+    assert child.calls == 0
+    [outcome] = outcomes
+    assert (outcome.status, outcome.error) == ("failed", "disk gone")
+    assert turn.outcome is outcome
+    assert await manager.get_active_run("parent/toolu_1") is None
+
+
+@pytest.mark.parametrize("agent", [None, "Find the loader"])
+async def test_permission_request_names_the_subagent_asking(agent: str | None) -> None:
+    manager = RunManager()
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="session-1",
+        user_message=user_text_message("hi"),
+        base_messages=[],
+        agent=ReviewAgent(manager, "session-1", agent=agent),
+    )
+    request = await _wait_for_event(manager, run["id"], "permission_request")
+    await manager.resolve_decision(run["id"], str(request["request_id"]), "allow")
+    await _wait_for_run_task(manager, run["id"])
+
+    assert request.get("agent") == agent
+    assert ("agent" in request) is (agent is not None)
+
+
+class AgentToolCallAgent(ChatOnlyAgent):
+    """A turn that calls the agent tool, whose result carries the child's spend, and then another tool."""
+
+    def cancel(self) -> None:
+        return None
+
+    async def achat(self, user_input, on_persist=None):
+        del user_input
+        child_spend = {"usage": {"input_tokens": 100, "output_tokens": 20}, "cost": {"total": 0.5}}
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "toolu_a", "name": "agent", "input": {}})
+        yield ToolDoneEvent(tool_use_id="toolu_a", output="found", is_error=False, metadata=child_spend)
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "toolu_b", "name": "websearch", "input": {}})
+        yield ToolDoneEvent(tool_use_id="toolu_b", output="x", is_error=False, metadata={"results": 3})
+        yield UsageEvent(
+            context_tokens=10,
+            turn_usage={"input_tokens": 10, "output_tokens": 1},
+            turn_cost={"total": 0.01},
+            turn_duration_ms=None,
+        )
+
+
+async def test_agent_tool_results_add_the_child_spend_to_live_totals() -> None:
+    manager = RunManager()
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message=user_text_message("hi"),
+        base_messages=[],
+        agent=AgentToolCallAgent(),
+        session_base=_totals(1.0, usage={"input_tokens": 1000}),
+    )
+    state = await _wait_for_run_task(manager, run["id"])
+
+    [usage] = [event for event in state.events if event["type"] == "usage"]
+    assert usage["session_usage"] == {"input_tokens": 1110, "output_tokens": 21}
+    assert usage["session_cost"] == pytest.approx({"total": 1.51})
+    assert state.session_totals.cost == pytest.approx({"total": 1.51})
+
+
+async def test_agent_run_holds_its_session_until_the_outcome_is_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = RunManager()
+    host = _host(tmp_path, monkeypatch, manager)
+    reached, release = asyncio.Event(), asyncio.Event()
+
+    async def on_complete(_outcome: ChildOutcome) -> None:
+        reached.set()
+        await release.wait()
+
+    turn = host.start_turn(
+        cast(Agent, ChildAgent()), "find it", session_id="toolu_1", description="Find it", on_complete=on_complete
+    )
+    async with asyncio.timeout(5):
+        await reached.wait()
+
+    # The child turn is over, but its outcome is not saved yet: the slot stays taken.
+    assert not turn.task.done()
+    snapshot = await manager.snapshot_session("parent/toolu_1")
+    assert snapshot is not None
+    assert snapshot["run"]["status"] == "running"
+    assert await manager.has_active_run("parent/toolu_1")
+
+    release.set()
+    async with asyncio.timeout(5):
+        await turn.task
+
+    assert await manager.snapshot_session("parent/toolu_1") is None
+    assert not await manager.has_active_run("parent/toolu_1")

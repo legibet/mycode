@@ -7,8 +7,9 @@ import re
 import shlex
 from collections.abc import Iterable
 from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
+from typing import Any, override
 from uuid import uuid4
 
 from prompt_toolkit.application import get_app
@@ -38,7 +39,8 @@ from mycode.messages import (
     merge_user_messages,
     text_block,
 )
-from mycode_cli.background import BackgroundJobs
+from mycode_cli.agent_tool import AGENT_INFO_FILE, read_agent_info
+from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -50,7 +52,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent
+from mycode_cli.runtime import LocalAgentHost, build_agent
 from mycode_cli.sessions import SessionInfo, SessionLockedError, SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
@@ -59,6 +61,8 @@ from mycode_cli.workspace import resolve_path
 
 from .render import (
     TurnRenderer,
+    agent_stats,
+    agent_transcript,
     compact_marker,
     error_line,
     format_local_timestamp,
@@ -82,6 +86,7 @@ _COMMANDS = (
     ("/rewind", "Rewind to a previous message"),
     ("/model", "Switch model"),
     ("/effort", "Set reasoning effort"),
+    ("/agents", "Show subagents"),
     ("/quit", "Quit"),
     ("/exit", "Quit"),
 )
@@ -315,6 +320,8 @@ class TerminalChat:
         self._wake = asyncio.Event()
         # The running turn's renderer; tool reviews print through it.
         self._renderer: TurnRenderer | None = None
+        # Parallel subagents can ask at once; the chooser shows one review at a time.
+        self._review_lock = asyncio.Lock()
         self.terminal = Terminal(
             history_path=history_file_path(),
             completer=_PromptCompleter(cwd=self.settings.cwd),
@@ -326,12 +333,19 @@ class TerminalChat:
         self.agent = self._build_agent(resolved_provider, session_id, self.jobs)
 
     def _build_agent(self, resolved_provider: ResolvedProvider, session_id: str, jobs: BackgroundJobs) -> Agent:
-        """Build an agent for ``session_id``; its history loads from disk.
+        """Build an agent for ``session_id``, with a new subagent host; its history loads from disk.
 
         Reads the session and the system prompt sources, so it can fail with
         ``OSError`` or ``ValueError``. Callers build first and switch state after.
         """
 
+        agents = LocalAgentHost(
+            store=self.store,
+            settings=self.settings,
+            resolved_provider=resolved_provider,
+            session_id=session_id,
+            review=self._review_tool_call,
+        )
         return build_agent(
             store=self.store,
             settings=self.settings,
@@ -340,12 +354,15 @@ class TerminalChat:
             max_turns=self.max_turns,
             review=self._review_tool_call,
             jobs=jobs,
+            agents=agents,
         )
 
     async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
         title = Text()
         title.append(f"{TOOL_MARKER} Review", style=WARNING)
         title.append(f"  {tool_label(request.tool_name)}")
+        if request.agent is not None:
+            title.append(f"  agent: {request.agent}", style=MUTED)
         lines: list[Text] = [title]
         if request.preview:
             lines.append(Text(f"  {shorten(request.preview, self.terminal.width - 2)}", style=MUTED))
@@ -353,17 +370,21 @@ class TerminalChat:
         # tool finishing meanwhile cannot print between them; once decided, it
         # goes to the scrollback as a block of the turn.
         options = [("allow", "Allow"), ("deny", "Deny")]
-        self.terminal.set_status("blocked", permission=True, msg=f"{tool_label(request.tool_name)} {request.preview}")
-        selected = await self.terminal.choose(options, default="allow", title=[Text(), *lines])
-        assert self._renderer is not None, "tool reviews run inside a turn"
-        self._renderer.print_block(*lines)
-        if selected == "allow":
-            self.terminal.set_status("working")
-            return "allow"
-        # A denial stops the turn like Esc does, and holds background wakes with it.
-        self.jobs.suspended = True
-        self.agent.cancel()
-        return "deny"
+        async with self._review_lock:
+            self.terminal.set_status(
+                "blocked", permission=True, msg=f"{tool_label(request.tool_name)} {request.preview}"
+            )
+            selected = await self.terminal.choose(options, default="allow", title=[Text(), *lines])
+            assert self._renderer is not None, "tool reviews run inside a turn"
+            self._renderer.print_block(*lines)
+            if selected == "allow":
+                self.terminal.set_status("working")
+                return "allow"
+            # A denial stops the turn like Esc does, and holds background wakes with it.
+            # The stop also cancels the reviews still waiting for the lock.
+            self.jobs.suspended = True
+            self.agent.cancel()
+            return "deny"
 
     async def run(self) -> None:
         """Run the interactive chat until the user exits the terminal UI."""
@@ -503,12 +524,17 @@ class TerminalChat:
                     self.terminal.set_status("done")
 
     def _attach_results(self, message: ConversationMessage) -> None:
-        """Put the finished background results ahead of ``message`` and print them."""
+        """Put the finished background results ahead of ``message`` and print them.
+
+        A blank line follows the cards, so the next block is spaced like any other.
+        """
 
         blocks = self.jobs.take_pending()
         message["content"] = [*blocks, *message["content"]]
         for block in blocks:
             self.terminal.print(*job_lines(block, self.terminal.width))
+        if blocks:
+            self.terminal.print()
 
     async def _turn_renderer(self) -> TurnRenderer:
         # Fold the session JSONL fresh each turn: covers resume, /new, /rewind,
@@ -667,6 +693,8 @@ class TerminalChat:
                     self._apply_effort_change(argument)
                 else:
                     await self._switch_effort()
+            case "/agents":
+                await self._show_agents()
 
         return True
 
@@ -914,3 +942,69 @@ class TerminalChat:
         save_state(self.state)
         changed = resolved.reasoning_effort != current.reasoning_effort
         self._print_done("effort →" if changed else "already using", resolved.reasoning_effort or "auto")
+
+    async def _show_agents(self) -> None:
+        """List this session's subagents, running ones first, and act on the chosen one.
+
+        A finished one prints its transcript; a running one can be stopped or
+        show its transcript so far.
+        """
+
+        running = [job for job in self.jobs.jobs if job.name == "agent"]
+        live = {job.session_id for job in running}
+        agents_dir = self.store.agents_dir(self.session_id)
+
+        def read_infos() -> list[tuple[str, dict[str, Any]]]:
+            return [
+                (path.parent.name, info)
+                for path in agents_dir.glob(f"*/{AGENT_INFO_FILE}")
+                if (info := read_agent_info(path)) is not None
+            ]
+
+        finished = [(child_id, info) for child_id, info in await asyncio.to_thread(read_infos) if child_id not in live]
+        if not running and not finished:
+            self.terminal.print(Text("no agents in this session", style=MUTED))
+            return
+
+        # Each option is the child id, its description, and its job while it runs.
+        options: list[tuple[tuple[str, str, BackgroundJob | None], Text] | str] = []
+        if running:
+            options.append("running")
+            now = datetime.now(UTC)
+            for job in running:
+                assert job.session_id is not None
+                elapsed = round((now - datetime.fromisoformat(job.started_at)).total_seconds())
+                options.append(((job.session_id, job.label, job), Text(job.label).append(f"  {elapsed}s", style=MUTED)))
+        if finished:
+            options.append("finished")
+            # Newest first: by the end of the last turn, or the start of one that never ended.
+            finished.sort(
+                key=lambda item: item[1]["last"]["finished_at"] if "last" in item[1] else item[1]["created_at"],
+                reverse=True,
+            )
+            for child_id, info in finished:
+                if last := info.get("last"):
+                    status = " · ".join(part for part in (last["status"], agent_stats(last)) if part)
+                else:
+                    status = "interrupted"
+                description = info["description"]
+                options.append(((child_id, description, None), Text(description).append(f"  {status}", style=MUTED)))
+
+        selected = await self.terminal.choose(options)
+        if selected is None:
+            return
+        child_id, description, job = selected
+        if job is not None:
+            action = await self.terminal.choose(
+                [("stop", "Stop"), ("transcript", "Show transcript so far")], title=[Text(description)]
+            )
+            if action is None:
+                return
+            if action == "stop":
+                if self.jobs.kill(job.tool_use_id):
+                    self._print_done("stopped", description)
+                else:
+                    self.terminal.print(Text("agent already finished", style=MUTED))
+                return
+        messages = await SessionStore(data_dir=agents_dir).load_messages(child_id)
+        self.terminal.print(Text(), *agent_transcript(description, messages, width=self.terminal.width))

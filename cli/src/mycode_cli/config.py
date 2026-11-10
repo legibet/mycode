@@ -93,6 +93,12 @@ class WebConfig:
 
 
 @dataclass(frozen=True)
+class SubagentConfig:
+    # Model references the agent tool lets the model choose from.
+    models: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Settings:
     providers: dict[str, ProviderConfig]
     cwd: str
@@ -100,6 +106,7 @@ class Settings:
     compact_threshold: float | None = None
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    subagent: SubagentConfig = field(default_factory=SubagentConfig)
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -133,6 +140,19 @@ class ResolvedProvider:
             raise ValueError(
                 f"reasoning effort {effort!r} is not supported by model {self.model!r}; supported efforts: {supported}"
             )
+        return replace(self, reasoning_effort=effort)
+
+    def with_effort_at_least(self, value: str | None) -> ResolvedProvider:
+        """Return a copy that requests the lowest accepted effort at or above ``value``, else the highest one.
+
+        ``None``, or a model that accepts no effort, leaves effort to the provider.
+        """
+
+        if value is None or not self.reasoning_efforts:
+            return replace(self, reasoning_effort=None)
+        rank = REASONING_EFFORT_OPTIONS.index
+        accepted = sorted(self.reasoning_efforts, key=rank)
+        effort = next((effort for effort in accepted if rank(effort) >= rank(value)), accepted[-1])
         return replace(self, reasoning_effort=effort)
 
 
@@ -307,6 +327,9 @@ def _clean_config_layer(data: Any) -> dict[str, Any]:
         if web:
             out["web"] = web
 
+    if data.get("subagent") is not None:
+        out["subagent"] = _validate_subagent_config(data["subagent"])
+
     raw_providers = data.get("providers")
     if raw_providers is not None:
         if not isinstance(raw_providers, dict):
@@ -375,6 +398,19 @@ def _validate_web_config(raw: Any) -> dict[str, Any]:
         if api_key:
             out[provider] = {"api_key": api_key}
 
+    return out
+
+
+def _validate_subagent_config(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("subagent must be an object")
+
+    out: dict[str, Any] = {}
+    if "models" in raw:
+        models = raw["models"]
+        if not isinstance(models, list) or not all(isinstance(model, str) and model.strip() for model in models):
+            raise ValueError("subagent.models must be a list of model references")
+        out["models"] = list(dict.fromkeys(model.strip() for model in models))
     return out
 
 
@@ -466,6 +502,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     compact_threshold: float | None = None
     permission = PermissionConfig()
     raw_web: dict[str, Any] = {}
+    subagent = SubagentConfig()
     config_paths: list[str] = []
 
     for path in _candidate_config_paths(resolved_cwd, resolved_project):
@@ -498,11 +535,15 @@ def get_settings(cwd: str | None = None) -> Settings:
                     api_key, api_key_env_var = _split_api_key(web[provider]["api_key"])
                     raw_web[provider] = WebProviderConfig(api_key=api_key, api_key_env_var=api_key_env_var)
 
+        if "models" in data.get("subagent", {}):
+            subagent = SubagentConfig(models=tuple(data["subagent"]["models"]))
+
     return Settings(
         providers=_build_providers(raw_providers),
         compact_threshold=compact_threshold,
         permission=permission,
         web=WebConfig(**raw_web),
+        subagent=subagent,
         cwd=resolved_cwd,
         project=resolved_project,
         config_paths=config_paths,

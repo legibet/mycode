@@ -6,10 +6,11 @@ import os
 from typing import Annotated, cast
 
 from fastapi import Depends, HTTPException, Request
+from fastapi import Path as PathParam
 
 from mycode_cli.config import resolve_cwd
 from mycode_cli.server.run_manager import RunManager
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import ID_PATTERN, SessionStore
 
 # How a session claimed by this server is named to the processes it refuses.
 LOCK_HOLDER = "the web server"
@@ -38,3 +39,8 @@ async def get_run_manager(request: Request) -> RunManager:
 
 StoreDep = Annotated[SessionStore, Depends(get_store)]
 RunManagerDep = Annotated[RunManager, Depends(get_run_manager)]
+
+# An id that names a path segment under the data directory: a session id (a
+# uuid hex or ``default``), a tool call id, or a subagent id (a uuid hex).
+# Validated like the agent tool does, so no id can leave its directory.
+PathId = Annotated[str, PathParam(pattern=ID_PATTERN)]

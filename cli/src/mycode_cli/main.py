@@ -17,7 +17,7 @@ import typer
 from mycode.agent import Agent
 from mycode.events import ErrorEvent, ToolDoneEvent, ToolStartEvent, UsageEvent
 from mycode.messages import ConversationMessage, ToolUseBlock, flatten_message_text
-from mycode.usage import Cost, Usage
+from mycode.usage import Cost, Usage, add_cost, add_usage
 from mycode_cli import __version__
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
@@ -29,11 +29,11 @@ from mycode_cli.config import (
     resolve_cwd,
     resolve_sessions_dir,
 )
-from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
+from mycode_cli.permissions import PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionLockedError, SessionStore
 from mycode_cli.state import load_state, resolve_remembered_provider
 
-from .runtime import build_agent
+from .runtime import LocalAgentHost, build_agent
 
 app = typer.Typer(
     add_completion=False,
@@ -160,6 +160,8 @@ async def run_noninteractive(
     permission_denials: list[dict[str, Any]] = []
     usage: Usage | None = None
     cost: Cost | None = None
+    child_usage: Usage = {}
+    child_cost: Cost | None = None
     try:
         await store.record_user_turn(agent.session_id, cwd=settings.cwd, text=message)
         async with aclosing(agent.achat(message, on_persist=track)) as stream:
@@ -169,15 +171,18 @@ async def run_noninteractive(
                         error_message = event.message or "agent error"
                     case ToolStartEvent():
                         tool_calls[event.tool_call["id"]] = event.tool_call
-                    case ToolDoneEvent(is_error=True) if event.output in {
-                        PERMISSION_DENIED_OUTPUT,
-                        PERMISSION_DENIED_BY_USER_OUTPUT,
-                    }:
+                    # Automatic and user denials both start with this prefix.
+                    case ToolDoneEvent(is_error=True) if event.output.startswith(PERMISSION_DENIED_OUTPUT):
                         error_message = event.output
                         call = tool_calls[event.tool_use_id]
                         permission_denials.append(
                             {"tool_use_id": call["id"], "name": call["name"], "input": call["input"]}
                         )
+                    case ToolDoneEvent(metadata=metadata) if metadata:
+                        # A blocking subagent's spend, which only its result metadata
+                        # carries, counts with the turn's own, as in the session totals.
+                        child_usage = add_usage(child_usage, metadata.get("usage") or {})
+                        child_cost = add_cost(child_cost, metadata.get("cost"))
                     case UsageEvent():
                         usage, cost = event.turn_usage, event.turn_cost
                 if output_format == "jsonl":
@@ -208,8 +213,8 @@ async def run_noninteractive(
                 provider=provider_name,
                 model=agent.model,
                 duration_ms=round((time.monotonic() - started) * 1000),
-                usage=usage,
-                cost=cost,
+                usage=add_usage(usage or {}, child_usage) or None,
+                cost=add_cost(cost, child_cost),
                 permission_denials=permission_denials,
             )
         )
@@ -372,6 +377,13 @@ def run(
                 resolved_provider=setup.resolved_provider,
                 session_id=setup.session_id,
                 max_turns=max_turns,
+                # Blocking subagents only: without a job registry background ones are refused.
+                agents=LocalAgentHost(
+                    store=setup.store,
+                    settings=setup.settings,
+                    resolved_provider=setup.resolved_provider,
+                    session_id=setup.session_id,
+                ),
             )
         except (OSError, ValueError, SessionLockedError) as exc:
             if output_format == "text":

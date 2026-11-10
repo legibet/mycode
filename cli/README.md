@@ -83,6 +83,32 @@ The CLI assembles the system prompt from instructions files and discovered skill
 - A skill is a directory containing a `SKILL.md`, up to three levels below a scan root, or a `.md` file directly in a scan root. Scan roots, lowest to highest priority: `~/.agents/skills/`, `~/.mycode/skills/`, then `.agents/skills/` and `.mycode/skills/` from the project root down to the current directory. Later roots override earlier ones by skill name. The file needs YAML frontmatter with a `description`; `name` defaults to the directory or file name and may contain only letters, digits, `-`, and `_` (at most 64 characters).
 - A standalone `/<skill-name>` token in a message loads the matching skill, e.g. `Use /fastapi to review this route`. Names matching built-in slash commands are reserved.
 
+## Subagents
+
+The model can hand a self-contained task to a subagent with the `agent` tool. A subagent works in its own session and returns its final reply, either while the model waits or in the background. The model can set the subagent's reasoning effort for the task; by default it uses the session's. Its tool calls follow the session's permission settings; a subagent the model waits for asks for approval like the main agent, and a background one cannot ask, so calls that need approval are denied.
+
+The built-in `general` subagent has the same tools as the main agent. Add your own as markdown files in `~/.mycode/agents/` or in `.mycode/agents/` of the project. A file named `general.md` replaces the built-in.
+
+```markdown
+---
+description: Reviews a diff for correctness bugs
+model: anthropic/claude-sonnet-5
+permission: readonly
+max_turns: 30
+---
+You review code changes. Report bugs with file and line.
+```
+
+`description` is required: it tells the model what the subagent is for. The body is added to the subagent's system prompt. `permission` takes the same values as the config `permission` and can only restrict the session's.
+
+To run subagents on other models, list them in the config. The first is the default for subagents whose definition names no `model`, and the model can pick any of them for each subagent:
+
+```json
+{"subagent": {"models": ["deepseek/deepseek-v4-flash", "anthropic/claude-opus-5"]}}
+```
+
+Reference: [docs/subagents.md](https://github.com/legibet/mycode/blob/main/docs/subagents.md).
+
 ## Terminal UI
 
 | Key                          | Action                                                                                 |
@@ -99,11 +125,15 @@ The CLI assembles the system prompt from instructions files and discovered skill
 
 While a reply runs, Enter steers it: the model sees the message at its next step, after the running tools finish. Ctrl+Q queues the message instead; queued messages are sent together as the next turn when the reply finishes. Pending messages show above the input. Commands are unavailable until the reply ends.
 
-A `bash` call with `background=true` keeps running after the reply ends (`docs/tools.md`). Its result is steered into the running reply, or wakes the idle session as a new turn, printed as a `Background finished` card with the command, its exit code, and the output tail. Esc, Ctrl+C, or denying a tool call holds wakes until the next message, which then carries the waiting results. `/new`, `/rewind`, a completed `/resume`, and exit stop the session's background commands.
+A `bash` call with `background=true` keeps running after the reply ends (`docs/tools.md`). Its result is steered into the running reply, or wakes the idle session as a new turn, printed as a `Background finished` card with the command, its exit code, and the output tail. Esc, Ctrl+C, or denying a tool call holds wakes until the next message, which then carries the waiting results. `/new`, `/rewind`, a completed `/resume`, and exit stop the session's background commands and agents.
+
+A running subagent shows its latest steps under `Agent  <description>`. When it finishes, the line shows its tool calls, time, and cost, followed by the end of its reply. A background subagent reports back with an `Agent finished` card. A subagent's approval request names it in the review title, and denying it stops the reply.
+
+`/agents` lists the session's subagents, running ones first. Choosing one prints its transcript; a running one can also be stopped, and still reports back.
 
 `@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
 
-Slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/quit` (alias `/exit`). `exit` and `quit` also exit.
+Slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/agents` `/quit` (alias `/exit`). `exit` and `quit` also exit.
 
 ## CLI Reference
 

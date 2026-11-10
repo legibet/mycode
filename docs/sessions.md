@@ -11,9 +11,11 @@ Sources: `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`
     messages.jsonl # SDK-owned append-only timeline
     tool-output/   # CLI tool spill files, created lazily
     lock           # CLI flock(2) target; holds the claiming process's name and pid
+    agents/        # CLI subagent sessions, created with the first one
+      <child_id>/  # messages.jsonl, agent.json, tool-output/, lock; no meta.json
 ```
 
-The SDK owns only `messages.jsonl` and does not know about workspaces, titles, catalog timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json`, `tool-output/`, and `lock` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
+The SDK owns only `messages.jsonl` and does not know about workspaces, titles, catalog timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json`, `tool-output/`, `lock`, and `agents/` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
 
 The SDK timeline appears on the first persisted message. The CLI normally creates its catalog entry on the first user turn; the explicit `POST /api/sessions` endpoint creates an empty `"New chat"` entry immediately.
 
@@ -24,6 +26,7 @@ One process writes a session at a time. An `Agent` keeps its loaded history in m
 - The TUI holds the claim while the session is open, from before its history loads until `/new`, `/resume`, or exit.
 - `mycode run` holds it for the whole process.
 - The web server holds it for each run (chat, compact, wake) from before the run's first write until the run frees the session, and while deleting a session. It rebuilds the agent from disk for every run, so it holds nothing between runs.
+- A subagent turn holds its child session's own lock instead (Subagent sessions), since a background child keeps writing after the parent's run ends.
 
 A refused claim raises `SessionLockedError` naming the holder, e.g. `session <id> is in use by the terminal UI (pid 4242)`; the CLI reports it and the server answers `409`. Readers take no claim. The kernel drops the lock when its process exits, so a crash leaves no stale claim.
 
@@ -32,6 +35,27 @@ A session left with only its lock file, never written or deleted, is removed whe
 Known limitation: when server shutdown cancels a request that is still preparing a run, the request releases its claim at once, while a disk write it already started may still finish.
 
 POSIX only.
+
+## Subagent sessions
+
+Each child of the `agent` tool (`docs/subagents.md`) is a session in the parent's `agents/` directory, the `data_dir` of the children's `SessionStore`. The parent's history links an `agent` call to its child through the result's `metadata.session_id`. A child has no `meta.json`, so the catalog does not list it, and deleting the parent deletes its children.
+
+`agent.json` is written before the first turn and replaced whole on every change:
+
+```json
+{
+  "agent": "general",
+  "description": "Find the config loader",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
+  "created_at": "...",
+  "last": {"status": "completed", "tool_calls": 12, "duration_ms": 45210, "usage": {...}, "cost": {...}, "finished_at": "..."}
+}
+```
+
+Every field except `last` is fixed when the child is created; `provider` is the configured provider name, and a resume runs on the stored provider and model. `last` is the latest finished turn's outcome, in the fields of the result metadata (`docs/subagents.md`), plus `finished_at`. A resumed turn removes `last` when it starts and writes it again when it ends, so a child with no running turn and no `last` was interrupted. An `agent.json` that lacks one of the string fields, or whose `last` lacks `status` or `finished_at`, counts as missing: the child cannot be resumed and the UIs do not show it.
+
+A child turn holds the child's own lock, with holder `a subagent turn`, from before it touches the child's files until it has written `last`.
 
 ## meta.json
 
@@ -91,9 +115,10 @@ A background job notification (`docs/tools.md`) is a text block with `meta.job`:
 
 ```json
 {"type": "text", "text": "Background bash finished (pid 12345, exit code 1): pytest -q\nLog: …\n\n…", "meta": {"job": {"tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "exit_code": 1}}}
+{"type": "text", "text": "Agent finished: Find the config loader\n\n…", "meta": {"job": {"tool_use_id": "toolu_y", "name": "agent", "label": "Find the config loader", "session_id": "<child id>", "status": "completed", "tool_calls": 12, "duration_ms": 45210, "usage": {...}, "cost": {...}}}}
 ```
 
-`tool_use_id` names the `tool_use` block that started the job, `label` is the shortened command, `exit_code` the process return code. Job blocks appear in three `user` message shapes: a wake message holding only job blocks (no `meta.steer`, no `meta.input_ids`), a steer message mixing job blocks with the user's steer items (`meta.input_ids` lists the user items only), or at the front of a normal user turn. Providers replay them as plain text. The CLI's `display_text` skips them, as it skips attachments and skill snapshots, so titles, history echoes, and queue previews never show command output; a wake message is therefore not a rewind target.
+`tool_use_id` names the `tool_use` block that started the job and `name` its tool. For `bash`, `label` is the shortened command and `exit_code` the process return code. For `agent`, `label` is the description, `session_id` the child, and the rest is the turn's outcome as in the result metadata. Job blocks appear in three `user` message shapes: a wake message holding only job blocks (no `meta.steer`, no `meta.input_ids`), a steer message mixing job blocks with the user's steer items (`meta.input_ids` lists the user items only), or at the front of a normal user turn. Providers replay them as plain text. The CLI's `display_text` skips them, as it skips attachments and skill snapshots, so titles, history echoes, and queue previews never show command output; a wake message is therefore not a rewind target.
 
 `assistant.meta.usage` holds canonical facts for one provider request. A missing key means the provider did not report it.
 
@@ -198,7 +223,7 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-The CLI creates `CliDeps(cwd, tool_output_dir, web, jobs)` for each agent, with `tool_output_dir` from `SessionStore.tool_output_dir(session_id)`, and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
+The CLI creates `CliDeps(cwd, tool_output_dir, web, jobs, agents)` for each agent, with `tool_output_dir` from `SessionStore.tool_output_dir(session_id)`, and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
 
 The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. It is created only when something spills. The SDK has no output-directory policy.
 
@@ -223,9 +248,11 @@ CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with
 - `load_metadata(session_id)` — load catalog metadata without reading the timeline
 - `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
 - `load_totals(session_id)` — cumulative usage and cost from the raw timeline, including compact summaries and rewound turns
+- Both totals include every subagent's raw timeline, so a parent's totals cover the children's spend
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match. The per-session body text is cached in memory and re-derived when `messages.jsonl` changes (`mtime_ns` + size), so the JSONL stays the only source of truth
-- `delete_session(session_id)` — remove catalog, timeline, and tool output together; the caller holds the session's lock, and releasing it removes the directory
+- `delete_session(session_id)` — remove catalog, timeline, tool output, and subagent sessions together; the caller holds the session's lock, and releasing it removes the directory. It claims every child's lock first, so a child turn running in any process raises `SessionLockedError` and nothing is deleted
+- `agents_dir(session_id)` — the session's `agents/` directory
 - `lock(session_id, holder)` — claim the session for this process (Session Lock), returning a `SessionLock` to `release()` or use as a context manager; raises `SessionLockedError` naming the current holder
 
 All async methods offload file I/O to `asyncio.to_thread()`; `lock` is synchronous.

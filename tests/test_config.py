@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from mycode.models import _ModelsCatalog
+from mycode.models import _ModelsCatalog, resolve_model_metadata
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode_cli.config import (
+    ResolvedProvider,
     WebConfig,
     WebProviderConfig,
     get_settings,
@@ -319,6 +320,23 @@ class TestGetSettings:
 
         assert settings.permission.level == "standard"
         assert settings.permission.mode == "deny"
+
+    def test_subagent_models_from_a_later_layer_replace_earlier_ones(self, workspace: Path, config_home: Path) -> None:
+        write_json(config_home / "config.json", {"subagent": {"models": ["a/one", "b/two"]}})
+        assert get_settings(str(workspace.resolve())).subagent.models == ("a/one", "b/two")
+
+        write_json(workspace / ".mycode" / "config.json", {"subagent": {"models": [" c/three ", "c/three"]}})
+        assert get_settings(str(workspace.resolve())).subagent.models == ("c/three",)
+
+        write_json(workspace / ".mycode" / "config.json", {"subagent": {"models": []}})
+        assert get_settings(str(workspace.resolve())).subagent.models == ()
+
+    @pytest.mark.parametrize("subagent", [["a/one"], {"models": "a/one"}, {"models": ["a/one", ""]}, {"models": [3]}])
+    def test_rejects_invalid_subagent_config(self, workspace: Path, config_home: Path, subagent: object) -> None:
+        write_json(config_home / "config.json", {"subagent": subagent})
+
+        with pytest.raises(ValueError, match="subagent"):
+            get_settings(str(workspace.resolve()))
 
     def test_rejects_invalid_permission_value(self, workspace: Path, config_home: Path) -> None:
         write_json(config_home / "config.json", {"permission": {"level": "careless"}})
@@ -696,3 +714,32 @@ class TestAgentCapabilities:
         assert agent.max_tokens == 64_000
         assert agent.supports_image_input is True
         assert resolved.reasoning_efforts == ()
+
+
+@pytest.mark.parametrize(
+    ("accepted", "requested", "expected"),
+    [
+        (("low", "medium", "high"), "medium", "medium"),
+        (("low", "high", "max"), "medium", "high"),
+        (("none", "high"), "low", "high"),
+        (("low", "medium", "high"), "xhigh", "high"),
+        (("medium", "high", "xhigh"), "none", "medium"),
+        (("low", "high"), None, None),
+        ((), "high", None),
+    ],
+)
+def test_with_effort_at_least_rounds_up_to_an_accepted_effort(
+    accepted: tuple[str, ...], requested: str | None, expected: str | None
+) -> None:
+    resolved = ResolvedProvider(
+        provider_name="openai",
+        provider="openai",
+        model="m",
+        api_key="k",
+        api_base=None,
+        metadata=resolve_model_metadata(provider="openai", model="m"),
+        reasoning_efforts=accepted,
+        reasoning_effort="low",
+    )
+
+    assert resolved.with_effort_at_least(requested).reasoning_effort == expected

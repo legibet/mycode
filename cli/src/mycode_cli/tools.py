@@ -783,6 +783,7 @@ async def bash_tool(
     jobs.add(
         BackgroundJob(
             tool_use_id=tool_use_id,
+            name="bash",
             label=label,
             pid=proc.pid,
             started_at=datetime.now(UTC).isoformat(),

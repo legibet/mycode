@@ -54,8 +54,14 @@ class TestTool:
         assert result.metadata["background"] is True
         log = Path(result.metadata["log"])
         assert log == tmp_path / "tool-output" / "bash-toolu_1.log"
-        assert len(jobs.jobs) == 1
-        assert jobs.jobs[0].pid == result.metadata["pid"]
+        [job] = jobs.jobs
+        assert job.info() == {
+            "tool_use_id": "toolu_1",
+            "name": "bash",
+            "label": "echo first; sleep 0.2; echo second; exit 3",
+            "started_at": job.started_at,
+            "pid": result.metadata["pid"],
+        }
 
         await _wait_for_file(log, b"first\n")
         assert not jobs.pending
@@ -120,7 +126,15 @@ class TestRegistry:
 
         task = asyncio.create_task(drain())
         jobs.add(
-            BackgroundJob(tool_use_id="a", label="x", pid=1, started_at="", task=task, kill=lambda: killed.append("a"))
+            BackgroundJob(
+                tool_use_id="a",
+                name="bash",
+                label="x",
+                pid=1,
+                started_at="",
+                task=task,
+                kill=lambda: killed.append("a"),
+            )
         )
 
         await jobs.close()
@@ -129,6 +143,39 @@ class TestRegistry:
         assert not started.is_set()
         assert killed == ["a"]
         assert jobs.jobs == []
+
+    async def test_find_returns_the_live_job_of_a_child_session(self) -> None:
+        jobs = BackgroundJobs()
+
+        async def run() -> None:
+            await asyncio.Event().wait()
+
+        bash = BackgroundJob(
+            tool_use_id="a", name="bash", label="x", started_at="", task=asyncio.create_task(run()), kill=lambda: None
+        )
+        agent = BackgroundJob(
+            tool_use_id="b",
+            name="agent",
+            label="y",
+            started_at="",
+            task=asyncio.create_task(run()),
+            kill=lambda: None,
+            session_id="child",
+        )
+        jobs.add(bash)
+        jobs.add(agent)
+
+        assert jobs.find("child") is agent
+        assert jobs.find("a") is None
+        assert agent.info() == {
+            "tool_use_id": "b",
+            "name": "agent",
+            "label": "y",
+            "started_at": "",
+            "session_id": "child",
+        }
+        await jobs.close()
+        assert jobs.find("child") is None
 
     def test_take_pending_marks_in_flight_once(self) -> None:
         jobs = BackgroundJobs()

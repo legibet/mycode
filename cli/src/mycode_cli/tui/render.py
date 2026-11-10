@@ -6,7 +6,7 @@ import asyncio
 import re
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -45,6 +45,7 @@ from .theme import (
     ERROR_MARKER,
     MARKDOWN_THEME,
     MUTED,
+    PENDING_MARKER,
     PROMPT_CHAR,
     SUCCESS,
     THINKING,
@@ -75,10 +76,13 @@ _BUILTIN_TOOLS: dict[str, tuple[str, str]] = {
     "bash": ("Bash", "command"),
     "webfetch": ("WebFetch", "url"),
     "websearch": ("WebSearch", "query"),
+    "agent": ("Agent", "description"),
 }
 
 # Notices bash appends to its output as separate paragraphs (docs/tools.md).
 _BASH_NOTICES = ("[Output truncated:", "[Command timed out", "[exit code:", "error: cancelled")
+# The paragraph the agent tool appends to a completed reply for the model.
+_AGENT_NOTICE = "[Agent "
 
 # CSI, OSC, and two-character escape sequences in tool output.
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")
@@ -241,10 +245,14 @@ def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | N
 
 
 def _tool_header(name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None) -> Text:
-    """Build the ``● Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
+    """Build the ``● Name  preview  [suffix]`` line of a finished tool call.
+
+    The suffix shows on success, and on a stopped subagent, whose stats still say what it did.
+    """
 
     marker = Text(no_wrap=True, overflow="ellipsis").append(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS)
-    suffix = None if failed else _tool_suffix(name, args, metadata)
+    stopped = name == "agent" and (metadata or {}).get("status") == "cancelled"
+    suffix = _tool_suffix(name, args, metadata) if not failed or stopped else None
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
@@ -254,30 +262,81 @@ def _job_blocks(message: ConversationMessage) -> list[TextBlock]:
     return [block for block in message["content"] if block["type"] == "text" and job_id(block)]
 
 
-def job_lines(block: TextBlock, width: int) -> list[Text]:
-    """Render a finished background command: ``● Background finished  label  exit N``, then the output tail.
+def _output_tail(output: str) -> list[Text]:
+    """Render the last lines of a tool's output, after a count of the lines left out."""
 
-    The header names the event rather than the tool, so it does not read as a second ``Bash`` call.
+    lines = [line for line in output.split("\n") if line.strip() and line != "(empty)"]
+    tail: list[Text] = []
+    if len(lines) > _TOOL_OUTPUT_MAX_LINES:
+        tail.append(Text(f"  … +{len(lines) - _TOOL_OUTPUT_MAX_LINES} lines", style=MUTED))
+        lines = lines[-_TOOL_OUTPUT_MAX_LINES:]
+    tail.extend(Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=MUTED) for line in lines)
+    return tail
+
+
+def _agent_reply(output: str) -> list[Text]:
+    """Render a subagent's reply: its last lines, then the error of a turn that did not complete.
+
+    The notice the ``agent`` tool appends for the model is left out; the header's stats carry it.
+    """
+
+    paragraphs = output.split("\n\n")
+    if paragraphs[-1].startswith(_AGENT_NOTICE):
+        paragraphs.pop()
+    error = paragraphs.pop() if paragraphs and paragraphs[-1].startswith("error: ") else None
+    lines = _output_tail("\n\n".join(paragraphs))
+    if error is not None:
+        lines.append(Text(f"  {_display_line(error)[:_RESULT_LINE_MAX_CHARS]}", style=ERROR))
+    return lines
+
+
+def agent_stats(stats: Mapping[str, Any]) -> str:
+    """Format a subagent turn's stats as ``12 tools · 45s · $0.03``, leaving out missing parts.
+
+    ``stats`` is the ``agent`` tool's result metadata, a job's meta, or ``agent.json``'s ``last``.
+    """
+
+    parts: list[str] = []
+    if isinstance(calls := stats.get("tool_calls"), int):
+        parts.append(f"{calls} tool{'' if calls == 1 else 's'}")
+    if isinstance(duration_ms := stats.get("duration_ms"), int):
+        parts.append(f"{round(duration_ms / 1000)}s")
+    if (cost := stats.get("cost")) is not None:
+        parts.append(_format_cost(cost["total"]))
+    return " · ".join(parts)
+
+
+def job_lines(block: TextBlock, width: int) -> list[Text]:
+    """Render a finished background job: its header, then the output or reply tail.
+
+    A command's header is ``● Background finished  label  exit N``, a subagent's
+    ``● Agent finished  label  stats`` (``Agent stopped`` or ``Agent failed``
+    when it did not complete). It names the event rather than the tool, so it
+    does not read as a second call.
     """
 
     job = block["meta"]["job"]
-    exit_code = job["exit_code"]
-    marker = Text(no_wrap=True, overflow="ellipsis").append(f"{TOOL_MARKER} ", style=ERROR if exit_code else SUCCESS)
-    tail = Text(f"  exit {exit_code}", style=ERROR if exit_code else MUTED)
-    title = _title_line("Background finished", job["label"], width - marker.cell_len - tail.cell_len)
-    lines = [marker.append_text(title).append_text(tail)]
-
-    # The text is the header, a blank line, the output tail, then any bash notices.
+    # The text is the header, a blank line, then the output or reply.
     _, _, body = block["text"].partition("\n\n")
-    output, notices = _split_notices(body)
-    output_lines = [line for line in output.split("\n") if line.strip() and line != "(empty)"]
-    if len(output_lines) > _TOOL_OUTPUT_MAX_LINES:
-        lines.append(Text(f"  … +{len(output_lines) - _TOOL_OUTPUT_MAX_LINES} lines", style=MUTED))
-        output_lines = output_lines[-_TOOL_OUTPUT_MAX_LINES:]
-    lines.extend(
-        Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=MUTED) for line in [*output_lines, *notices]
-    )
-    return lines
+    if job["name"] == "agent":
+        title = {"cancelled": "Agent stopped", "failed": "Agent failed"}.get(job["status"], "Agent finished")
+        failed = job["status"] != "completed"
+        stats = agent_stats(job)
+        tail = Text(f"  {stats}", style=MUTED) if stats else Text()
+        output_lines = _agent_reply(body)
+    else:
+        title = "Background finished"
+        exit_code = job["exit_code"]
+        failed = exit_code != 0
+        tail = Text(f"  exit {exit_code}", style=ERROR if failed else MUTED)
+        output, notices = _split_notices(body)
+        output_lines = [
+            *_output_tail(output),
+            *(Text(f"  {_display_line(notice)[:_RESULT_LINE_MAX_CHARS]}", style=MUTED) for notice in notices),
+        ]
+    marker = Text(no_wrap=True, overflow="ellipsis").append(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS)
+    header = marker.append_text(_title_line(title, job["label"], width - marker.cell_len - tail.cell_len))
+    return [header.append_text(tail), *output_lines]
 
 
 # One piece of a turn in the history preview: user text, assistant markdown, a
@@ -290,8 +349,8 @@ type _HistoryPart = (
 )
 
 
-def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> list[list[_HistoryPart]]:
-    """Return the last few readable conversation turns for resumed sessions."""
+def _history_turns(messages: list[ConversationMessage]) -> list[list[_HistoryPart]]:
+    """Return the readable conversation turns."""
 
     turns: list[list[_HistoryPart]] = []
     results = {
@@ -333,17 +392,27 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
             turns.append([])
         turns[-1].extend(parts)
 
-    return turns[-limit:]
+    return turns
 
 
 def history_preview(messages: list[ConversationMessage], *, width: int) -> list[RenderableType]:
     """Build the recent-turns preview printed for resumed sessions; empty when there is nothing to show."""
 
-    turns = _history_turns(messages)
-    if not turns:
-        return []
+    lines = _history_lines(_history_turns(messages)[-3:], width)
+    return [Text("recent", style=MUTED), *lines] if lines else []
 
-    lines: list[RenderableType] = [Text("recent", style=MUTED)]
+
+def agent_transcript(description: str, messages: list[ConversationMessage], *, width: int) -> list[RenderableType]:
+    """Build a subagent's whole transcript between ``── Agent: description ──`` and ``── end ──`` rules."""
+
+    lines = _history_lines(_history_turns(messages), width) or [Text(), Text("no messages", style=MUTED)]
+    return [Text(f"── Agent: {description} ──", style=MUTED), *lines, Text(), Text("── end ──", style=MUTED)]
+
+
+def _history_lines(turns: list[list[_HistoryPart]], width: int) -> list[RenderableType]:
+    """Render history turns, each after a blank line."""
+
+    lines: list[RenderableType] = []
     for turn in turns:
         lines.append(Text())
         for part in turn:
@@ -354,10 +423,15 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
                     lines.append(MarkdownBlock(text))
                 case ("job", block):
                     lines.extend(job_lines(block, width))
-                case ("tool", call, result):
-                    failed = result is not None and result["is_error"]
-                    metadata = result.get("metadata") if result is not None else None
-                    lines.append(_tool_header(call["name"], call["input"], width, failed=failed, metadata=metadata))
+                case ("tool", call, result) if result is not None:
+                    metadata = result.get("metadata")
+                    lines.append(
+                        _tool_header(call["name"], call["input"], width, failed=result["is_error"], metadata=metadata)
+                    )
+                case ("tool", call, _):
+                    # Still running: its result is not in the history yet.
+                    marker = Text(no_wrap=True, overflow="ellipsis").append(f"{PENDING_MARKER} ", style=MUTED)
+                    lines.append(marker.append_text(_tool_title(call["name"], call["input"], width - marker.cell_len)))
                 case ("compact",):
                     lines.append(compact_marker())
     return lines
@@ -433,8 +507,10 @@ def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | Non
         if isinstance(content, str):
             lines = content.count("\n") + 1
             parts.append(f"({lines} lines)", style=MUTED)
-    elif name == "bash" and (metadata or {}).get("background"):
+    elif name in ("bash", "agent") and (metadata or {}).get("background"):
         parts.append("background", style=MUTED)
+    elif name == "agent" and metadata:
+        parts.append(agent_stats(metadata), style=MUTED)
 
     return parts if parts.plain else None
 
@@ -610,14 +686,25 @@ class TurnRenderer:
         """
 
         tool = self._tools.pop(event.tool_use_id)
-        style = ERROR if event.is_error else MUTED
+        metadata = event.metadata or {}
+        # A blocking subagent's spend, which only its result metadata carries, counts
+        # in the session at once; a background one's at the next load.
+        self._session_base = self._session_base.add(metadata.get("usage"), metadata.get("cost"))
+        if tool.name == "agent":
+            # The reply replaces the summary lines; a background start has none yet.
+            body = [] if metadata.get("background") else _agent_reply(event.output)
+        else:
+            style = ERROR if event.is_error else MUTED
+            body = [
+                *tool.output(),
+                *(
+                    Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=style)
+                    for line in _result_status(event.output, is_error=event.is_error)
+                ),
+            ]
         self._print(
             _tool_header(tool.name, tool.args, self._terminal.width, failed=event.is_error, metadata=event.metadata),
-            *tool.output(),
-            *(
-                Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=style)
-                for line in _result_status(event.output, is_error=event.is_error)
-            ),
+            *body,
             joined=self._last_tool,
         )
         self._last_tool = True

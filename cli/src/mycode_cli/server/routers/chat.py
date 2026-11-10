@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 
+from mycode.agent import Agent
 from mycode.attachments import (
     Attachment,
     build_attachment_blocks,
@@ -42,8 +43,8 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewCallback, ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
-from mycode_cli.server.deps import LOCK_HOLDER, RunManagerDep, StoreDep, resolve_workspace_cwd
-from mycode_cli.server.run_manager import RunAgent, RunManager
+from mycode_cli.server.deps import LOCK_HOLDER, PathId, RunManagerDep, StoreDep, resolve_workspace_cwd
+from mycode_cli.server.run_manager import RunAgent, RunManager, ServerAgentHost
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
@@ -223,6 +224,37 @@ async def _claim_for_run(store: SessionStore, session_id: str) -> AsyncIterator[
         raise
 
 
+def _build_session_agent(
+    *,
+    runs: RunManager,
+    store: SessionStore,
+    settings: Settings,
+    resolved_provider: ResolvedProvider,
+    session_id: str,
+    review: ToolReviewCallback,
+    jobs: BackgroundJobs,
+) -> Agent:
+    """Build the session's agent for a chat or wake run, its subagents run as agent runs."""
+
+    agents = ServerAgentHost(
+        runs=runs,
+        store=store,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        session_id=session_id,
+        review=review,
+    )
+    return build_agent(
+        store=store,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        session_id=session_id,
+        review=review,
+        jobs=jobs,
+        agents=agents,
+    )
+
+
 async def _record_queued_turn(store: SessionStore, session_id: str, cwd: str, message: ConversationMessage) -> None:
     """Register a queued turn in the catalog when the run takes it, as ``/api/chat`` does for its own."""
 
@@ -279,16 +311,19 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             )
 
             async def review(request: ToolReviewRequest) -> ToolReviewDecision:
-                # Bridge before_tool review waits to SSE events on the active run.
+                # Bridge before_tool review waits to SSE events on the active run;
+                # a blocking subagent's requests wait on it too, naming the subagent.
                 return await runs.request_decision(
                     session_id=session_id,
                     tool_call_id=request.tool_call_id,
                     tool_name=request.tool_name,
                     preview=request.preview,
+                    agent=request.agent,
                 )
 
             agent = await asyncio.to_thread(
-                build_agent,
+                _build_session_agent,
+                runs=runs,
                 store=store,
                 settings=settings,
                 resolved_provider=request_provider,
@@ -355,7 +390,8 @@ async def _deliver_job_results(
             try:
                 async with _claim_for_run(store, session_id) as lock:
                     agent = await asyncio.to_thread(
-                        build_agent,
+                        _build_session_agent,
+                        runs=runs,
                         store=store,
                         settings=settings,
                         resolved_provider=resolved_provider,
@@ -394,6 +430,10 @@ async def stream_server_events(req: Request, runs: RunManagerDep) -> StreamingRe
 
     async def events() -> AsyncIterator[str]:
         async with runs.subscribe() as queue:
+            # Sent at once: a proxy that forwards the headers with the first
+            # body bytes passes them on now, so the client's connection opens
+            # as soon as the subscription exists.
+            yield ": connected\n\n"
             while not await req.is_disconnected():
                 try:
                     async with asyncio.timeout(15):
@@ -455,7 +495,7 @@ async def decide_run(
 
 @router.post("/sessions/{session_id}/compact")
 async def compact_session(
-    session_id: Annotated[str, PathParam(min_length=1)],
+    session_id: PathId,
     body: CompactRequest,
     store: StoreDep,
     runs: RunManagerDep,
@@ -505,6 +545,9 @@ async def steer_run(
     state = await runs.get_run(run_id)
     if state is None:
         raise HTTPException(status_code=404, detail="run not found")
+    if state.kind != "chat":
+        # A subagent is steered by its parent through the agent tool, a compact never.
+        raise HTTPException(status_code=409, detail={"message": "run is not a chat", "run": state.info()})
     message, uploads = await _build_user_message(
         body, cwd=state.cwd, tool_output_dir=store.tool_output_dir(state.session_id)
     )
@@ -523,7 +566,7 @@ async def steer_run(
 
 @router.post("/sessions/{session_id}/queue")
 async def queue_message(
-    session_id: Annotated[str, PathParam(min_length=1)],
+    session_id: PathId,
     body: PendingInputRequest,
     store: StoreDep,
     runs: RunManagerDep,
@@ -545,7 +588,7 @@ async def queue_message(
 
 @router.delete("/sessions/{session_id}/queue/{input_id}")
 async def remove_queued_message(
-    session_id: Annotated[str, PathParam(min_length=1)],
+    session_id: PathId,
     input_id: Annotated[str, PathParam(min_length=1)],
     runs: RunManagerDep,
 ) -> RunResponse:
@@ -559,7 +602,7 @@ async def remove_queued_message(
 
 @router.post("/sessions/{session_id}/queue/{input_id}/steer")
 async def steer_queued_message(
-    session_id: Annotated[str, PathParam(min_length=1)],
+    session_id: PathId,
     input_id: Annotated[str, PathParam(min_length=1)],
     runs: RunManagerDep,
 ) -> RunResponse:
