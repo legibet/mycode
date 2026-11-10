@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx2
 
@@ -306,7 +307,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             tool_input = getattr(function_call, "args", None)
             blocks.append(
                 tool_use_block(
-                    tool_id=str(getattr(function_call, "id", None) or f"tool_call_{len(blocks)}"),
+                    tool_id=str(getattr(function_call, "id", None) or f"tool_call_{uuid4().hex}"),
                     name=str(getattr(function_call, "name", None) or ""),
                     input=tool_input if isinstance(tool_input, dict) else {},
                     meta={"native": {"part": native_part}},

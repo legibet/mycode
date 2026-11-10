@@ -6,6 +6,7 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, override
+from uuid import uuid4
 
 import httpx2
 
@@ -161,7 +162,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             tool_input, invalid_meta = parse_tool_call_input("".join(state.arguments_parts))
             blocks.append(
                 tool_use_block(
-                    tool_id=state.tool_id or f"tool_call_{index}",
+                    tool_id=state.tool_id or f"tool_call_{uuid4().hex}",
                     name=state.name,
                     input=tool_input,
                     meta=invalid_meta or None,
