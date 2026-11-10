@@ -185,7 +185,7 @@ async for event in agent.achat("Hello"):
 | `ReasoningDoneEvent` | `reasoning_done` | `duration_ms`                                                                              |
 | `TextEvent`          | `text`           | `delta`                                                                                    |
 | `ToolStartEvent`     | `tool_start`     | `tool_call`: a copy of the `tool_use` block                                                |
-| `ToolOutputEvent`    | `tool_output`    | `tool_use_id`, `output`; delta from `streams_output=True` tools                            |
+| `ToolOutputEvent`    | `tool_output`    | `tool_use_id`, `output`, `metadata` (optional); from `streams_output=True` tools           |
 | `ToolDoneEvent`      | `tool_done`      | `tool_use_id`, `output`, `is_error`, `metadata` (optional), `content` (optional)           |
 | `CompactEvent`       | `compact`        | `trigger` (`"auto"`); emitted after an automatic compact marker is committed               |
 | `UserMessageEvent`   | `user_message`   | `message`; a merged steer message, emitted after it is committed                           |
@@ -291,6 +291,8 @@ Tools are opted in via `tools=[...]`; nothing is registered by default. A `strea
 `agent.tools` is the session's `ToolExecutor`. Its read-only `specs` tuple exposes the registered `ToolSpec` values in definition order, which is useful when constructing another agent with the same tool set. `definitions` remains the provider-facing JSON representation.
 
 `tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result.
+
+A streaming tool reports through `ctx.emit(output="", /, *, metadata=None)`, from any thread. `metadata` is the call's metadata so far, for UIs. It replaces what the call reported before, is never trimmed, and arrives with the next `tool_output`, whose `output` is empty when no text came with it. `tool_done.metadata` is the final value.
 
 A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. An `invalid_input` rejection includes the tool name, `meta.parse_error`, and the original text from `meta.raw_arguments`. A canonical `error` response is persisted with `meta.error` and ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
 
@@ -408,7 +410,7 @@ agent = Agent(model="...", api_key="...", deps=AppDeps(Path("/workspace")), tool
 
 - `ctx.tool_call_id` carries the provider tool-call id on agent-loop calls.
 - `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name. A nested call shares the outer call's context, including `emit` and `tool_call_id`.
-- `ctx.emit(delta)` appends display text for a `streams_output=True` tool. It is thread-safe and works from sync and async tools. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
+- `ctx.emit(delta)` appends display text for a `streams_output=True` tool. It is thread-safe and works from sync and async tools. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure. `ctx.emit(metadata=...)` reports the call's metadata so far (Tools).
 
 ### Tool hooks
 

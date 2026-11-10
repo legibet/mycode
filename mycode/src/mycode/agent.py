@@ -838,9 +838,10 @@ class Agent:
                         # The done callback wakes the consumer even when the tool
                         # task is cancelled before its coroutine starts.
                         task.add_done_callback(lambda _task: output_buffer.finish())
-                        while (output := await output_buffer.get()) is not None:
-                            if output and not run.cancel_requested:
-                                yield ToolOutputEvent(tool_use_id=tool_id, output=output)
+                        while (pending := await output_buffer.get()) is not None:
+                            output, metadata = pending
+                            if (output or metadata is not None) and not run.cancel_requested:
+                                yield ToolOutputEvent(tool_use_id=tool_id, output=output, metadata=metadata)
                     result = await asyncio.shield(task)
             except _RunCancelled:
                 result = ToolExecutionResult(output="error: cancelled", is_error=True)
@@ -1166,24 +1167,30 @@ _LIVE_OUTPUT_MAX_BYTES = 50 * 1024
 
 
 class _ToolOutputBuffer:
-    """Thread-safe bounded buffer for live tool output."""
+    """Thread-safe bounded buffer for live tool output.
+
+    Text is bounded; metadata is kept whole, only its latest value.
+    """
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
         self._event = asyncio.Event()
         self._lock = threading.Lock()
         self._pending = bytearray()
+        self._metadata: dict[str, Any] | None = None
         self._omitted = False
         self._finished = False
         self._notified = False
         self._at_line_boundary = True
 
-    def append(self, delta: str) -> None:
-        if not delta:
+    def append(self, delta: str = "", /, *, metadata: dict[str, Any] | None = None) -> None:
+        if not delta and metadata is None:
             return
         with self._lock:
             if self._finished:
                 return
+            if metadata is not None:
+                self._metadata = metadata
             self._pending.extend(delta.encode("utf-8"))
             excess = len(self._pending) - _LIVE_OUTPUT_MAX_BYTES
             if excess > 0:
@@ -1202,17 +1209,22 @@ class _ToolOutputBuffer:
             self._notified = True
         self._loop.call_soon_threadsafe(self._event.set)
 
-    async def get(self) -> str | None:
+    async def get(self) -> tuple[str, dict[str, Any] | None] | None:
+        """The text and metadata appended since the last call; ``None`` once
+        finished and drained."""
+
         await self._event.wait()
         with self._lock:
             pending = self._pending.decode("utf-8", errors="ignore")
+            metadata = self._metadata
             omitted = self._omitted
             finished = self._finished
             self._pending.clear()
+            self._metadata = None
             self._omitted = False
             self._notified = False
             self._event.clear()
-            resignal = bool(pending and finished)
+            resignal = bool((pending or metadata is not None) and finished)
             if resignal:
                 self._notified = True
 
@@ -1224,9 +1236,9 @@ class _ToolOutputBuffer:
 
         if resignal:
             self._event.set()
-        if pending:
-            return pending
-        return None if finished else ""
+        if pending or metadata is not None:
+            return pending, metadata
+        return None if finished else ("", None)
 
 
 # ------------------------------------------------------------------

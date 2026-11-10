@@ -742,6 +742,58 @@ class TestCustomTools:
         assert isinstance(events[-1], ToolDoneEvent)
         assert events[-1].output == "complete"
 
+    @pytest.mark.asyncio
+    async def test_metadata_alone_reaches_the_consumer_while_the_tool_runs(self, tmp_path: Path) -> None:
+        release = asyncio.Event()
+
+        @tool(streams_output=True)
+        async def announce(ctx: ToolContext[None]) -> str:
+            """Name what the call works on, then wait."""
+
+            assert ctx.emit is not None
+            ctx.emit(metadata={"child": "a"})
+            await release.wait()
+            return "complete"
+
+        agent = _new_agent(tmp_path, tools=[announce])
+        adapter = _FakeProviderAdapter([_tool_turn("call-1", name="announce", tool_input={}), _text_turn()])
+
+        events: list[Event] = []
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(5):
+                async for event in agent.achat("run tool"):
+                    events.append(event)
+                    if event.type == "tool_output":
+                        release.set()
+
+        events = _chat_events(events)
+        assert [event.type for event in events[:3]] == ["tool_start", "tool_output", "tool_done"]
+        assert events[1] == ToolOutputEvent(tool_use_id="call-1", output="", metadata={"child": "a"})
+
+    @pytest.mark.asyncio
+    async def test_unread_metadata_is_replaced_and_survives_trimmed_text(self, tmp_path: Path) -> None:
+        @tool(streams_output=True)
+        async def burst(ctx: ToolContext[None]) -> str:
+            """Set metadata twice and overflow the live text before the consumer reads."""
+
+            assert ctx.emit is not None
+            ctx.emit(metadata={"phase": "setup"})
+            ctx.emit("head\n", metadata={"child": "a"})
+            ctx.emit("x" * (60 * 1024))
+            ctx.emit("\ntail\n")
+            return "complete"
+
+        agent = _new_agent(tmp_path, tools=[burst])
+        adapter = _FakeProviderAdapter([_tool_turn("call-1", name="burst", tool_input={}), _text_turn()])
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            events = _chat_events([event async for event in agent.achat("run tool")])
+
+        [output] = [event for event in events if isinstance(event, ToolOutputEvent)]
+        assert output.metadata == {"child": "a"}
+        assert output.output.startswith("[live output omitted]\nxxx")
+        assert output.output.endswith("\ntail\n")
+
     @pytest.mark.parametrize("streams_output", [False, True])
     def test_cancel_stops_async_tool_from_another_thread(
         self,

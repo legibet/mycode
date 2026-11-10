@@ -68,11 +68,14 @@ class ToolStartEvent(_BaseEvent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolOutputEvent(_BaseEvent):
-    """Live display output from a streaming tool."""
+    """Live output from a streaming tool: display text to append, empty when
+    only ``metadata`` changed, and the call's metadata so far when the tool set
+    it. ``metadata`` replaces any sent earlier; ``tool_done`` carries the final one."""
 
     type: ClassVar[Literal["tool_output"]] = "tool_output"
     tool_use_id: str
     output: str
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -20,7 +20,7 @@ import typing
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Any, TypedDict, cast, overload
+from typing import Any, Protocol, TypedDict, cast, overload
 
 from griffe import Docstring, DocstringSectionKind, Parser
 from pydantic import ConfigDict, Field, ValidationError, create_model
@@ -31,7 +31,12 @@ from mycode.messages import ImageBlock, TextBlock
 # Core types
 # ---------------------------------------------------------------------------
 
-ToolOutputCallback = Callable[[str], None]
+
+class ToolOutputCallback(Protocol):
+    """A streaming tool's live output: display text to append, and the call's
+    metadata so far, which replaces any it sent before. Safe to call from any thread."""
+
+    def __call__(self, output: str = "", /, *, metadata: dict[str, Any] | None = None) -> None: ...
 
 
 class ToolDefinition(TypedDict):
