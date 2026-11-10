@@ -206,6 +206,25 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "claude-fable-5-2": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.2,
+        "cache_write": 10,
+        "input": 8,
+        "output": 40
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "claude-haiku-4-5": {
       "context_window": 200000,
       "cost": {
@@ -594,7 +613,7 @@
       "supports_pdf_input": false
     },
     "deep-research-max-preview-04-2026": {
-      "context_window": 131072,
+      "context_window": 1048576,
       "cost": {
         "cache_read": 0.2,
         "input": 2,
@@ -614,7 +633,7 @@
       "supports_pdf_input": true
     },
     "deep-research-preview-04-2026": {
-      "context_window": 131072,
+      "context_window": 1048576,
       "cost": {
         "cache_read": 0.2,
         "input": 2,
@@ -3014,6 +3033,33 @@
       "reasoning_efforts": [
         "none",
         "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "muse-ember-1.0": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.004,
+        "input": 0.1,
+        "output": 0.5,
+        "tiers": [
+          {
+            "cache_read": 0.012,
+            "input": 0.3,
+            "output": 1.5,
+            "size": 200000
+          }
+        ]
+      },
+      "max_output_tokens": 524288,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
       ],
       "supports_image_input": true,
       "supports_pdf_input": true
