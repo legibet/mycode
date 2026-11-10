@@ -3,7 +3,9 @@
  * or the tool; fields are `unknown` and type-checked where they are read.
  */
 
+import type { AgentOutcome } from "@/types";
 import { type DiffHunk, hunksFromEdits, parsePatch } from "@/utils/diff";
+import { formatCost, formatDuration } from "@/utils/format";
 
 export type ToolArgs = Record<string, unknown> | undefined;
 export type ToolMeta = Record<string, unknown> | null | undefined;
@@ -30,6 +32,8 @@ export function getPreview(name: string, args: ToolArgs): string {
       return asString(args["url"]);
     case "websearch":
       return asString(args["query"]);
+    case "agent":
+      return asString(args["description"]);
     default: {
       const values: string[] = [];
       for (const [key, value] of Object.entries(args)) {
@@ -90,4 +94,28 @@ export function getEditHunks(args: ToolArgs, metadata: ToolMeta): DiffHunk[] {
         }))
       : [],
   );
+}
+
+/** A background start's job output, which the projection adds once the job has finished. */
+export function getJobOutput(metadata: ToolMeta): string | null {
+  const output = metadata?.["job_output"];
+  return typeof output === "string" ? output : null;
+}
+
+// The paragraph a blocking agent result ends with, for the model only.
+const AGENT_NOTICE = /\n*\[Agent [^\n]*\]\s*$/;
+
+/** A blocking agent call's final reply: its output without the closing notice. */
+export function getAgentReply(output: string): string {
+  return output.replace(AGENT_NOTICE, "");
+}
+
+/** `12 tools · 45s · $0.03` for a completed call, led by `failed` or `stopped` otherwise. */
+export function formatAgentOutcome(outcome: AgentOutcome): string {
+  const tools = `${outcome.tool_calls} ${outcome.tool_calls === 1 ? "tool" : "tools"}`;
+  const parts = [tools, formatDuration(outcome.duration_ms)];
+  if (outcome.cost) parts.push(formatCost(outcome.cost.total));
+  if (outcome.status === "failed") parts.unshift("failed");
+  if (outcome.status === "cancelled") parts.unshift("stopped");
+  return parts.join(" · ");
 }

@@ -1,5 +1,6 @@
 /**
- * Tool permission prompt panel mounted above the input area.
+ * Tool permission prompt panel mounted above the input area, or under the
+ * transcript dialog's body while that dialog covers the chat.
  *
  * Per-tool differences live in the icon, the title sentence and how the
  * payload is typeset; the shell never changes.
@@ -72,7 +73,9 @@ export const PermissionPrompt = memo(function PermissionPrompt({
       event.preventDefault();
       onDecide("allow");
     } else if (event.key === "Escape") {
+      // Escape answers the prompt; it does not also close a dialog around it.
       event.preventDefault();
+      event.stopPropagation();
       onDecide("deny");
     }
   };
@@ -98,7 +101,13 @@ export const PermissionPrompt = memo(function PermissionPrompt({
           <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
             <Icon className="size-3.5" aria-hidden="true" />
           </span>
-          <span className="text-sm text-foreground/90">{title}</span>
+          <span className="shrink-0 text-sm text-foreground/90">{title}</span>
+          {/* A subagent's call names the agent asking, as the TUI does. */}
+          {request.agent && (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              agent: {request.agent}
+            </span>
+          )}
         </div>
 
         {request.preview && <Payload toolName={request.tool_name} preview={request.preview} />}

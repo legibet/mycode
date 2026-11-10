@@ -1,4 +1,5 @@
 import {
+  Bot,
   FileText,
   Globe,
   type LucideIcon,
@@ -15,4 +16,5 @@ export const TOOL_ICON: Record<string, LucideIcon> = {
   edit: SquarePen,
   webfetch: Globe,
   websearch: Search,
+  agent: Bot,
 };

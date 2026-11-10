@@ -11,17 +11,25 @@ import { fetchJson, type RemoteConfig, type SettingsResponse } from "@/api";
 import { InputArea, type InputAreaHandle } from "@/components/composer/InputArea";
 import { PermissionPrompt } from "@/components/composer/PermissionPrompt";
 import { EmptyState, MessageList } from "@/components/messages/MessageList";
+import { type SessionLinks, SessionLinksContext } from "@/components/messages/sessionLinks";
 import { MobileHeader } from "@/components/MobileHeader";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { SessionSearch } from "@/components/sidebar/SessionSearch";
 import { DockedSidebar, Sidebar } from "@/components/sidebar/Sidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { TranscriptDialog } from "@/components/transcript/TranscriptDialog";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useChat } from "@/hooks/useChat";
 import { useIsDesktop } from "@/hooks/useIsDesktop";
-import type { AttachedFile, ComposerSubmission, LocalConfig, PendingInput } from "@/types";
+import type {
+  AttachedFile,
+  ComposerSubmission,
+  LocalConfig,
+  PendingInput,
+  TranscriptTarget,
+} from "@/types";
 import type { SlashCommand } from "@/utils/completion";
 import { normalizeConfigWithRemoteDefaults } from "@/utils/config";
 import { isMac } from "@/utils/platform";
@@ -104,6 +112,7 @@ function AppContent() {
     pending,
     jobs,
     stopJob,
+    subscribeEvents,
     send,
     steer,
     queue,
@@ -119,9 +128,23 @@ function AppContent() {
     deleteSession,
   } = useChat(config, remoteConfig, restoreToComposer);
 
+  // The transcript dialog belongs to the session it was opened in: switching
+  // or closing that session closes it.
+  const [transcript, setTranscript] = useState<TranscriptTarget | null>(null);
+  if (transcript && transcript.sessionId !== activeSession.id) setTranscript(null);
+  const closeTranscript = useCallback(() => setTranscript(null), []);
+  const sessionLinks = useMemo<SessionLinks>(() => {
+    const sessionId = encodeURIComponent(activeSession.id);
+    return {
+      openAgent: (childId) => setTranscript({ sessionId: activeSession.id, childId }),
+      logUrl: (toolUseId) => `/api/sessions/${sessionId}/logs/${encodeURIComponent(toolUseId)}`,
+    };
+  }, [activeSession.id]);
+
   // Esc is the keyboard twin of the composer's stop button. Controls that
   // own Esc (permission prompt, completion menu, message edit) preventDefault
-  // first, and a Base UI dialog in the path (settings sheet) closes itself.
+  // first, a Base UI dialog in the path (settings sheet) closes itself, and an
+  // open popover (the jobs panel) keeps the key from reaching the window.
   useEffect(() => {
     if (!loading) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -272,74 +295,92 @@ function AppContent() {
 
         {/* Main content */}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-          {/* Mobile header */}
-          <MobileHeader
-            title={activeSession.title}
-            onMenuToggle={() => setSidebarOpen((v) => !v)}
-            onCreateSession={handleCreateSession}
-          />
-
-          {/* Setup required (no provider, or no API): only the empty state, saying what to do. */}
-          {setupRequired ? (
-            <div className="flex min-h-0 flex-1 flex-col pt-6 pb-4">
-              <EmptyState>
-                {remoteConfig ? (
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm text-muted-foreground">Add a provider to get started.</p>
-                    <Button variant="outline" size="sm" onClick={handleOpenSettings}>
-                      Open settings
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Couldn&apos;t reach the API.</p>
-                )}
-              </EmptyState>
-            </div>
-          ) : (
-            <MessageList
-              sessionId={messageSessionId ?? activeSession.id}
-              messages={messages}
-              loading={runKind === "chat"}
-              compacting={runKind === "compact"}
-              compactError={compactError}
-              sendError={sendError}
-              pendingSteers={pending.steers}
-              onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
+          <SessionLinksContext value={sessionLinks}>
+            {/* Mobile header */}
+            <MobileHeader
+              title={activeSession.title}
+              onMenuToggle={() => setSidebarOpen((v) => !v)}
+              onCreateSession={handleCreateSession}
             />
-          )}
 
-          <div className="shrink-0 pb-4 max-md:pb-1">
-            {pendingPermission && (
-              <PermissionPrompt request={pendingPermission} onDecide={decidePermission} />
+            {/* Setup required (no provider, or no API): only the empty state, saying what to do. */}
+            {setupRequired ? (
+              <div className="flex min-h-0 flex-1 flex-col pt-6 pb-4">
+                <EmptyState>
+                  {remoteConfig ? (
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm text-muted-foreground">
+                        Add a provider to get started.
+                      </p>
+                      <Button variant="outline" size="sm" onClick={handleOpenSettings}>
+                        Open settings
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Couldn&apos;t reach the API.</p>
+                  )}
+                </EmptyState>
+              </div>
+            ) : (
+              <MessageList
+                sessionId={messageSessionId ?? activeSession.id}
+                messages={messages}
+                loading={runKind === "chat"}
+                compacting={runKind === "compact"}
+                compactError={compactError}
+                sendError={sendError}
+                pendingSteers={pending.steers}
+                onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
+              />
             )}
-            <InputArea
-              key={config.cwd}
-              ref={inputAreaRef}
-              sessionId={activeSession.id}
-              loading={loading}
-              compacting={runKind === "compact"}
-              onSubmit={handleSubmit}
-              onCancel={cancel}
-              queued={pending.queue}
-              onSteerQueued={steerQueued}
-              onEditQueued={handleEditQueued}
-              onRemoveQueued={removeQueued}
-              jobs={jobs}
-              onStopJob={stopJob}
-              supportsImages={supportsImageInput}
-              supportsDocuments={supportsPdfInput}
-              config={config}
-              remoteConfig={remoteConfig}
-              onUpdateConfig={handleConfigUpdate}
-              onSlashCommand={handleSlashCommand}
-              disabled={setupRequired}
-              disabledReason={workspaceDisabledReason}
-              sessionUsage={sessionUsage}
-              currentContext={currentContext}
-            />
-          </div>
+
+            <div className="shrink-0 pb-4 max-md:pb-1">
+              {/* While the transcript dialog covers the chat, the prompt shows in it instead. */}
+              {pendingPermission && !transcript && (
+                <PermissionPrompt request={pendingPermission} onDecide={decidePermission} />
+              )}
+              <InputArea
+                key={config.cwd}
+                ref={inputAreaRef}
+                sessionId={activeSession.id}
+                loading={loading}
+                compacting={runKind === "compact"}
+                onSubmit={handleSubmit}
+                onCancel={cancel}
+                queued={pending.queue}
+                onSteerQueued={steerQueued}
+                onEditQueued={handleEditQueued}
+                onRemoveQueued={removeQueued}
+                jobs={jobs}
+                onStopJob={stopJob}
+                messages={messages}
+                supportsImages={supportsImageInput}
+                supportsDocuments={supportsPdfInput}
+                config={config}
+                remoteConfig={remoteConfig}
+                onUpdateConfig={handleConfigUpdate}
+                onSlashCommand={handleSlashCommand}
+                disabled={setupRequired}
+                disabledReason={workspaceDisabledReason}
+                sessionUsage={sessionUsage}
+                currentContext={currentContext}
+              />
+            </div>
+          </SessionLinksContext>
         </main>
       </div>
+
+      <TranscriptDialog
+        transcript={transcript}
+        messages={messages}
+        jobs={jobs}
+        onOpen={setTranscript}
+        onClose={closeTranscript}
+        onStopJob={stopJob}
+        subscribeEvents={subscribeEvents}
+        permission={pendingPermission}
+        onDecidePermission={decidePermission}
+      />
 
       <SessionSearch
         open={searchOpen}

@@ -59,7 +59,7 @@ export function ResponsiveDialog({
         initialFocus={initialFocus}
         className={cn(
           "flex flex-col gap-0 p-0",
-          fullScreen ? "h-dvh rounded-none" : "max-h-[82vh] rounded-t-2xl",
+          fullScreen ? "h-dvh rounded-none border-t-0" : "max-h-[82vh] rounded-t-2xl",
         )}
       >
         <SheetTitle className="sr-only">{title}</SheetTitle>

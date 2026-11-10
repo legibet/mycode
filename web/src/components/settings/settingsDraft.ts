@@ -46,6 +46,8 @@ export interface SettingsDraft {
   web_search: WebSearchProvider;
   web_keys: Record<WebKeyProvider, ApiKeyDraft>;
   providers: ProviderDraft[];
+  /** Not edited in the panel; carried through so a save keeps it. */
+  subagent_models: string[];
 }
 
 export function buildDraft(config: GlobalConfig): SettingsDraft {
@@ -74,6 +76,7 @@ export function buildDraft(config: GlobalConfig): SettingsDraft {
       supports_reasoning_effort: Boolean(entry.supports_reasoning_effort),
       ...buildApiKeyDraft(entry),
     })),
+    subagent_models: config.subagent?.models ?? [],
   };
 }
 
@@ -146,6 +149,8 @@ export function buildPayload(draft: SettingsDraft): GlobalConfig {
     providers[name] = entry;
   }
   if (Object.keys(providers).length) config.providers = providers;
+
+  if (draft.subagent_models.length) config.subagent = { models: draft.subagent_models };
 
   return config;
 }

@@ -4,6 +4,7 @@
  */
 
 import type {
+  AgentOutcome,
   ChatMessage,
   Cost,
   PermissionRequest,
@@ -82,6 +83,7 @@ export interface GlobalConfig {
     tavily?: WebProviderEntry;
     exa?: WebProviderEntry;
   };
+  subagent?: { models?: string[] };
 }
 
 /** `GET /api/settings` and `PUT /api/settings`. */
@@ -101,7 +103,8 @@ export interface SettingsResponse {
 
 // ─── runs and sessions ──────────────────────────────────────────────────────
 
-export type RunKind = "chat" | "compact";
+/** `agent` runs are a subagent's turns, keyed `<parent id>/<child id>`. */
+export type RunKind = "chat" | "compact" | "agent";
 
 export interface RunInfo {
   id: string;
@@ -112,15 +115,21 @@ export interface RunInfo {
   error?: string;
 }
 
-/** A running background command, as `GET /api/sessions/{id}` and `/api/events` describe it. */
+/** A running background job, as `GET /api/sessions/{id}` and `/api/events` describe it. */
 export interface BackgroundJobInfo {
+  /** The call that started the job. */
   tool_use_id: string;
+  name: "bash" | "agent";
+  /** The shortened command, or the agent's description. */
   label: string;
-  pid: number;
   started_at: string;
+  /** Bash jobs only. */
+  pid?: number;
+  /** Agent jobs only: the child session. */
+  session_id?: string;
 }
 
-/** One event of `GET /api/events`: a run or a background command started or ended. */
+/** One event of `GET /api/events`: a run or a background job started or ended. */
 export type ServerEvent =
   | { type: "run_started" | "run_finished"; session_id: string; run: RunInfo }
   | {
@@ -130,14 +139,20 @@ export type ServerEvent =
     };
 
 /** One event of a run, without the stream's `seq`. Field optionality follows
- * the SSE contract: the server omits `None` fields, which only `tool_done`'s
+ * the SSE contract: the server omits `None` fields, which only the tool events'
  * `metadata` and the `usage` fields can be. */
 export type RunEvent =
   | { type: "reasoning"; delta: string }
   | { type: "reasoning_done"; duration_ms: number }
   | { type: "text"; delta: string }
   | { type: "tool_start"; tool_call: { id: string; name: string; input: ToolInput } }
-  | { type: "tool_output"; tool_use_id: string; output: string }
+  | {
+      type: "tool_output";
+      tool_use_id: string;
+      output: string;
+      /** The call's metadata so far, replacing any sent earlier. */
+      metadata?: Record<string, unknown>;
+    }
   | {
       type: "tool_done";
       tool_use_id: string;
@@ -182,10 +197,10 @@ export interface SessionsResponse {
   sessions: SessionSummary[];
 }
 
-/** `GET /api/sessions/{id}`. */
-export interface SessionResponse {
+/** `GET /api/sessions/{id}`, and with an `AgentSession` the child snapshot. */
+export interface SessionResponse<S = SessionSummary | null> {
   /** null when the session does not exist. */
-  session: SessionSummary | null;
+  session: S;
   messages: ChatMessage[];
   /** null when unknown. */
   session_usage: Record<string, number> | null;
@@ -194,9 +209,25 @@ export interface SessionResponse {
   pending_events: StreamEvent[];
   /** The active run's undelivered steers and queued messages. */
   pending: { steers: PendingMessage[]; queue: PendingMessage[] };
-  /** Background commands still running in this session. */
+  /** Background jobs still running in this session. */
   jobs: BackgroundJobInfo[];
 }
+
+/** A subagent's `agent.json`, with its id. */
+export interface AgentSession {
+  id: string;
+  /** The agent definition's name. */
+  agent: string;
+  description: string;
+  provider: string;
+  model: string;
+  created_at: string;
+  /** The last finished turn; absent while the first runs and after a crash. */
+  last?: AgentOutcome & { finished_at: string };
+}
+
+/** `GET /api/sessions/{id}/agents/{child_id}`. */
+export type AgentSessionResponse = SessionResponse<AgentSession>;
 
 export interface SessionSearchHit {
   session: SessionSummary;
@@ -303,6 +334,34 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
     throw await readApiError(response, `Request failed (${response.status})`);
   }
   return (await response.json()) as T;
+}
+
+/**
+ * Follow `GET /api/events`: `onEvent` for each event, `onOpen` on every
+ * connection, told whether it is a reconnect. There is no replay, so a
+ * reconnect is the cue to resync. Returns the close function.
+ */
+export function openServerEvents(
+  onEvent: (event: ServerEvent) => void,
+  onOpen: (reconnect: boolean) => void,
+): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  const source = new EventSource("/api/events");
+  let connected = false;
+  source.onopen = () => {
+    onOpen(connected);
+    connected = true;
+  };
+  source.onmessage = (message: MessageEvent<string>) => {
+    let event: ServerEvent;
+    try {
+      event = JSON.parse(message.data) as ServerEvent;
+    } catch {
+      return;
+    }
+    onEvent(event);
+  };
+  return () => source.close();
 }
 
 /** The marker `readSse` yields for the stream's final `data: [DONE]` line. */

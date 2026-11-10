@@ -18,13 +18,17 @@ const TOOL_KINDS: readonly (readonly [tool: string | null, one: string, many: st
   ["edit", "edit", "edits"],
   ["write", "write", "writes"],
   ["bash", "command", "commands"],
+  ["agent", "agent", "agents"],
   ["read", "read", "reads"],
   ["websearch", "search", "searches"],
   ["webfetch", "fetch", "fetches"],
   [null, "tool call", "tool calls"],
 ];
-// What the SDK records for a tool stopped by cancellation, not a failure.
-const CANCELLED_OUTPUT = "error: cancelled";
+// A tool stopped by cancellation, not a failure: bash ends its output with
+// `error: cancelled`, the agent tool with `error: cancelled by the user ...`.
+function isCancelled(output: string | null | undefined): boolean {
+  return (output ?? "").split("\n\n").at(-1)?.startsWith("error: cancelled") ?? false;
+}
 
 function summarizeTools(blocks: MessageBlock[]): string {
   const counts = TOOL_KINDS.map(() => 0);
@@ -34,7 +38,7 @@ function summarizeTools(blocks: MessageBlock[]): string {
     const kind = TOOL_KINDS.findIndex(([tool]) => tool === block.name);
     const index = kind === -1 ? TOOL_KINDS.length - 1 : kind;
     counts[index] = (counts[index] ?? 0) + 1;
-    if (block.runtime?.isError && block.runtime.finalOutput !== CANCELLED_OUTPUT) {
+    if (block.runtime?.isError && !isCancelled(block.runtime.finalOutput)) {
       failed += 1;
     }
   }

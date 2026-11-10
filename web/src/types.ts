@@ -244,14 +244,39 @@ export interface CompactMarkerMessage {
   renderKey: string;
 }
 
-/** A finished background command, read from a `meta.job` text block. */
-export interface JobResult {
-  tool_use_id: string;
-  label: string;
-  exit_code: number;
-  /** The bounded output tail, without the notification's header lines. */
-  output: string;
+export type AgentStatus = "completed" | "failed" | "cancelled";
+
+/** How a subagent call or turn ended, summed over the records it added. */
+export interface AgentOutcome {
+  status: AgentStatus;
+  tool_calls: number;
+  duration_ms: number;
+  cost?: Cost;
 }
+
+/** A finished background job, read from a `meta.job` text block. */
+export type JobResult =
+  | {
+      name: "bash";
+      tool_use_id: string;
+      /** The shortened command. */
+      label: string;
+      /** The full command from the call that started the job, else the label. */
+      command: string;
+      exit_code: number;
+      /** The bounded output tail, without the notification's header lines. */
+      output: string;
+    }
+  | (AgentOutcome & {
+      name: "agent";
+      tool_use_id: string;
+      /** The agent's description. */
+      label: string;
+      /** The child session. */
+      session_id: string;
+      /** The agent's final reply, without the notification's header line. */
+      output: string;
+    });
 
 /** The background results that opened a turn, in the user bubble's place. */
 export interface JobMarkerMessage {
@@ -277,10 +302,18 @@ export interface PermissionRequest {
   tool_use_id: string;
   tool_name: string;
   preview: string;
+  /** The description of the subagent whose tool call this is. */
+  agent?: string;
 }
 
 export interface ThemeContextValue {
   theme: Theme;
   resolvedTheme: Exclude<Theme, "system">;
   setTheme: (theme: Theme) => void;
+}
+
+/** The subagent transcript the dialog shows: a child of the session it was opened in. */
+export interface TranscriptTarget {
+  sessionId: string;
+  childId: string;
 }

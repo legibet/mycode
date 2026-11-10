@@ -2,18 +2,33 @@
  * Tool execution display.
  * Zero container. Two-tier typography: tool name (sans medium, foreground)
  * vs everything else (mono regular, muted-foreground). Click the row text
- * to toggle the per-tool body (bash / read / write / edit / generic).
+ * to toggle the per-tool body (bash / read / write / edit / generic); an
+ * agent's row also opens its transcript from an action.
  */
 
-import { type LucideIcon, Terminal } from "lucide-react";
-import { memo, type ReactNode, useMemo, useState } from "react";
+import { Bot, type LucideIcon, Maximize2, Terminal } from "lucide-react";
+import {
+  memo,
+  type ReactNode,
+  type UIEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { EditDiff } from "@/components/markdown/EditDiff";
+import { MarkdownBlock } from "@/components/markdown/MarkdownBlock";
+import { LiveLogText, useLiveLog } from "@/components/messages/liveLog";
+import { useSessionLinks } from "@/components/messages/sessionLinks";
 import {
   asNumber,
   asString,
+  formatAgentOutcome,
+  getAgentReply,
   getEditHunks,
   getEditStats,
+  getJobOutput,
   getPreview,
   getReadHint,
   getWriteHint,
@@ -21,10 +36,15 @@ import {
   type ToolMeta,
 } from "@/components/messages/toolArgs";
 import { TOOL_ICON } from "@/components/messages/toolIcons";
+import { Button } from "@/components/ui/button";
 import { Collapse } from "@/components/ui/collapse";
+import { SimpleTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { readAgentOutcome } from "@/utils/messages";
 
 interface ToolCardProps {
+  /** The `tool_use` id. */
+  id: string;
   name: string;
   args?: Record<string, unknown>;
   output?: string | null | undefined;
@@ -42,21 +62,96 @@ interface ToolCardProps {
 // Diffs get their own surface (EditDiff.tsx): tinted rows run edge to edge.
 // ---------------------------------------------------------------------------
 
-export function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
+// Within this distance of the bottom, a followed body keeps to the tail.
+const TAIL_THRESHOLD = 48;
+
+export function ToolSurface({
+  head,
+  body,
+  followTail = false,
+  fixed = false,
+}: {
+  head?: ReactNode;
+  body?: ReactNode;
+  /** Keep the body scrolled to its end as it grows, until the reader scrolls up. */
+  followTail?: boolean | undefined;
+  /** Keep one size whatever the output: the head at three lines, the body at a fixed height. */
+  fixed?: boolean | undefined;
+}) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(true);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (followTail && el && followingRef.current) el.scrollTop = el.scrollHeight;
+  });
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    followingRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < TAIL_THRESHOLD;
+  };
+
   if (!head && !body) return null;
   return (
-    <div className="overflow-hidden rounded-md bg-code font-mono text-ui shadow-hairline">
+    <div
+      className={cn(
+        "overflow-hidden rounded-md bg-code font-mono text-ui shadow-hairline",
+        // A fixed surface gives way to a short viewport: the body shrinks first.
+        fixed && "flex min-h-0 flex-col",
+      )}
+    >
       {head && (
-        <div className="scrollbar-subtle max-h-60 overflow-auto px-3 py-2 leading-normal">
+        <div
+          className={cn(
+            "scrollbar-subtle overflow-auto px-3 py-2 leading-normal",
+            fixed ? "max-h-[calc(3lh+1rem)] shrink-0" : "max-h-60",
+          )}
+        >
           {head}
         </div>
       )}
       {body && (
-        <div className="scrollbar-subtle max-h-60 overflow-auto px-3 py-2 leading-relaxed whitespace-pre-wrap text-muted-foreground">
+        <div
+          ref={bodyRef}
+          onScroll={followTail ? handleScroll : undefined}
+          className={cn(
+            "scrollbar-subtle overflow-auto px-3 py-2 leading-relaxed whitespace-pre-wrap text-muted-foreground",
+            fixed ? "h-64 min-h-0" : "max-h-60",
+          )}
+        >
           {body}
         </div>
       )}
     </div>
+  );
+}
+
+/** A bash command over its output: the card's body, the marker's, and the jobs panel's. */
+export function BashSurface({
+  command,
+  output,
+  followTail,
+  fixed,
+}: {
+  command: string;
+  output: ReactNode;
+  followTail?: boolean | undefined;
+  fixed?: boolean | undefined;
+}) {
+  return (
+    <ToolSurface
+      head={
+        command && (
+          <>
+            <span className="text-muted-foreground/40 select-none">$ </span>
+            <span className="wrap-anywhere whitespace-pre-wrap text-foreground">{command}</span>
+          </>
+        )
+      }
+      body={output}
+      followTail={followTail}
+      fixed={fixed}
+    />
   );
 }
 
@@ -91,61 +186,209 @@ export function StatusPill({
   );
 }
 
-export function ToolRow({
-  icon: Icon,
-  label,
-  status,
-  preview,
-  suffix,
-  children,
-}: {
+const ROW_CLASS = "flex min-w-0 items-center gap-1.5";
+
+interface RowContentProps {
   icon: LucideIcon;
   label: string;
   status?: "pending" | "error" | undefined;
   preview: string;
+  /** The preview is prose, such as an agent's description, not code. */
+  prosePreview?: boolean;
   suffix?: ReactNode;
-  /** The body the row opens to. */
-  children: ReactNode;
+}
+
+function RowContent({
+  icon: Icon,
+  label,
+  status,
+  preview,
+  prosePreview = false,
+  suffix,
+}: RowContentProps) {
+  return (
+    <>
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+
+      <span
+        className={cn(
+          "shrink-0 text-ui tracking-tight transition-colors duration-200",
+          status === "error"
+            ? "text-destructive/90 group-hover/tool:text-destructive"
+            : "text-foreground/90 group-hover/tool:text-foreground",
+          status === "pending" && "animate-thinking",
+        )}
+      >
+        {label}
+      </span>
+
+      {preview && (
+        <span
+          className={cn(
+            "min-w-0 truncate text-ui",
+            prosePreview ? "text-muted-foreground" : "font-mono text-muted-foreground/60",
+          )}
+        >
+          {preview}
+        </span>
+      )}
+
+      {suffix}
+    </>
+  );
+}
+
+export function ToolRow({
+  action,
+  children,
+  ...content
+}: RowContentProps & {
+  /** A control at the row's end, beside the toggle. */
+  action?: ReactNode;
+  /** The body the row opens to, or a function of whether it is open, for a
+   * body that works only while seen. Without one the row does not toggle. */
+  children?: ReactNode | ((expanded: boolean) => ReactNode);
 }) {
   const [expanded, setExpanded] = useState(false);
+  // An action sits right after the row's text, not at the far edge.
+  const rowClass = cn(ROW_CLASS, !action && "flex-1");
+
+  if (children === undefined) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className={rowClass}>
+          <RowContent {...content} />
+        </div>
+        {action}
+      </div>
+    );
+  }
 
   return (
     <div className="group/tool">
-      <button
-        type="button"
-        className="flex w-full cursor-pointer items-center gap-1.5 rounded-sm text-left select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-
-        <span
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
           className={cn(
-            "shrink-0 text-ui tracking-tight transition-colors duration-200",
-            status === "error"
-              ? "text-destructive/90 group-hover/tool:text-destructive"
-              : "text-foreground/90 group-hover/tool:text-foreground",
-            status === "pending" && "animate-thinking",
+            rowClass,
+            "cursor-pointer rounded-sm text-left select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
           )}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
         >
-          {label}
-        </span>
-
-        {preview && (
-          <span className="min-w-0 truncate font-mono text-ui text-muted-foreground/60">
-            {preview}
-          </span>
-        )}
-
-        {suffix}
-      </button>
+          <RowContent {...content} />
+        </button>
+        {action}
+      </div>
 
       <Collapse open={expanded}>
         {/* Plain indent: the body is already a bounded surface, so a rail
             beside it would just be a second parallel line. */}
-        <div className="mt-2 ml-5">{children}</div>
+        <div className="mt-2 ml-5">
+          {typeof children === "function" ? children(expanded) : children}
+        </div>
       </Collapse>
     </div>
+  );
+}
+
+/** A row's icon action that opens a subagent's transcript; nothing outside a view with links. */
+export function TranscriptAction({ childId }: { childId: string }) {
+  const links = useSessionLinks();
+  if (!links) return null;
+  return (
+    <SimpleTooltip label="Open transcript">
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Open transcript"
+        onClick={() => links.openAgent(childId)}
+        // Keeps the row at its text height.
+        className="-my-1"
+      >
+        <Maximize2 />
+      </Button>
+    </SimpleTooltip>
+  );
+}
+
+const AGENT_LIVE_LINES = 3;
+
+function AgentCard({
+  args,
+  output,
+  finalOutput,
+  metadata,
+  pending,
+  isError,
+}: Omit<ToolCardProps, "name">) {
+  // The call names its child once the child is set up, while it runs and in its result.
+  const childId = asString(metadata?.["session_id"]);
+  const background = metadata?.["background"] === true || args?.["background"] === true;
+  const steered = metadata?.["steered"] === true;
+  // A background start carries its job's outcome once the job has finished.
+  const outcome = readAgentOutcome(metadata);
+  // A background start's own result is a notice; its reply arrives with its job.
+  const replyFromJob = background && !steered && !isError;
+
+  const pill = steered ? (
+    <StatusPill>steered</StatusPill>
+  ) : outcome ? (
+    <StatusPill tone={outcome.status === "failed" ? "error" : "muted"}>
+      {formatAgentOutcome(outcome)}
+    </StatusPill>
+  ) : pending && !background ? (
+    <StatusPill>running</StatusPill>
+  ) : isError ? (
+    <StatusPill tone="error">failed</StatusPill>
+  ) : background ? (
+    <StatusPill pulse={metadata?.["running"] === true}>
+      {metadata?.["running"] === true ? "background · running" : "background"}
+    </StatusPill>
+  ) : null;
+
+  const liveLines =
+    pending && !background
+      ? (output ?? "").split("\n").filter(Boolean).slice(-AGENT_LIVE_LINES)
+      : [];
+  const reply = replyFromJob
+    ? (getJobOutput(metadata) ?? "").trim()
+    : !pending && !steered
+      ? getAgentReply(finalOutput ?? "").trim()
+      : "";
+
+  // The body, like every tool card's: the latest progress lines while a
+  // blocking call runs, the reply once it has one, the tool's output
+  // otherwise. A background start has nothing to open until its job ends.
+  const body =
+    liveLines.length > 0 ? (
+      liveLines.map((line, index) => (
+        <div
+          // Lines only append, so a position names one line.
+          key={index}
+          className="truncate font-mono text-xs leading-5 text-muted-foreground/70"
+        >
+          {line}
+        </div>
+      ))
+    ) : reply ? (
+      <MarkdownBlock content={reply} />
+    ) : replyFromJob ? undefined : (
+      <ToolSurface body={finalOutput ?? output} />
+    );
+
+  return (
+    <ToolRow
+      icon={Bot}
+      label="agent"
+      status={pending && !background ? "pending" : isError ? "error" : undefined}
+      preview={getPreview("agent", args)}
+      prosePreview
+      suffix={pill}
+      action={childId && <TranscriptAction childId={childId} />}
+    >
+      {body}
+    </ToolRow>
   );
 }
 
@@ -205,24 +448,6 @@ function CollapsedSuffix({
 // ---------------------------------------------------------------------------
 // Expanded body components — one per tool type
 // ---------------------------------------------------------------------------
-
-function BashBody({ args, display }: { args: ToolArgs; display: string }) {
-  const command = asString(args?.["command"]);
-
-  return (
-    <ToolSurface
-      head={
-        command && (
-          <>
-            <span className="text-muted-foreground/40 select-none">$ </span>
-            <span className="break-all whitespace-pre-wrap text-foreground">{command}</span>
-          </>
-        )
-      }
-      body={display}
-    />
-  );
-}
 
 function WriteBody({
   args,
@@ -292,7 +517,12 @@ function GenericBody({ args, display }: { args: ToolArgs; display: string }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export const ToolCard = memo(function ToolCard({
+export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
+  return props.name === "agent" ? <AgentCard {...props} /> : <ToolCallCard {...props} />;
+});
+
+function ToolCallCard({
+  id,
   name,
   args,
   output,
@@ -308,7 +538,9 @@ export const ToolCard = memo(function ToolCard({
 
   const body =
     name === "bash" ? (
-      <BashBody args={args} display={display} />
+      (expanded: boolean) => (
+        <BashBody id={id} args={args} metadata={metadata} display={display} open={expanded} />
+      )
     ) : name === "read" || name === "webfetch" || name === "websearch" ? (
       <ToolSurface body={display} />
     ) : name === "write" ? (
@@ -330,4 +562,49 @@ export const ToolCard = memo(function ToolCard({
       {body}
     </ToolRow>
   );
-});
+}
+
+/** A bash call's body: the command over its output. */
+function BashBody({
+  id,
+  args,
+  metadata,
+  display,
+  open,
+}: {
+  id: string;
+  args: ToolArgs;
+  metadata: ToolMeta;
+  display: string;
+  open: boolean;
+}) {
+  const command = asString(args?.["command"]);
+  if (metadata?.["background"] !== true) return <BashSurface command={command} output={display} />;
+  return (
+    <BackgroundBashBody id={id} command={command} jobOutput={getJobOutput(metadata)} open={open} />
+  );
+}
+
+/**
+ * A background start's own result is only a notice, so its output is the
+ * job's: its live log until the job's output arrives, streamed only while the
+ * row is open. One surface holds both, so the tail the reader follows stays
+ * in view when the job ends.
+ */
+function BackgroundBashBody({
+  id,
+  command,
+  jobOutput,
+  open,
+}: {
+  id: string;
+  command: string;
+  jobOutput: string | null;
+  open: boolean;
+}) {
+  const links = useSessionLinks();
+  const log = useLiveLog(jobOutput === null && open && links?.logUrl ? links.logUrl(id) : null);
+  return (
+    <BashSurface command={command} output={jobOutput ?? <LiveLogText log={log} />} followTail />
+  );
+}

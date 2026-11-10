@@ -25,4 +25,14 @@ describe("PermissionPrompt", () => {
 
     expect(onDecide).not.toHaveBeenCalled();
   });
+
+  it("names the subagent whose call asks", () => {
+    const { rerender } = render(<PermissionPrompt request={REQUEST} onDecide={vi.fn()} />);
+    expect(screen.queryByText(/^agent:/)).toBeNull();
+
+    rerender(
+      <PermissionPrompt request={{ ...REQUEST, agent: "Map the config" }} onDecide={vi.fn()} />,
+    );
+    expect(screen.getByText("agent: Map the config")).toBeInTheDocument();
+  });
 });

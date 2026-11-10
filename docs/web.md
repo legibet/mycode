@@ -6,18 +6,21 @@ The React + Vite UI in `web/src/`, served by the CLI server — serving modes an
 
 ```text
 web/src/
-  App.tsx                # layout, config and settings loading, session list, global shortcuts
-  api.ts                 # HTTP wire types, fetchJson / readApiError, SSE reader
+  App.tsx                # layout, config and settings loading, session list, transcript dialog state, global shortcuts
+  api.ts                 # HTTP wire types, fetchJson / readApiError, SSE and /api/events readers
   types.ts               # message, render, and UI types
   components/
-    composer/            # InputArea and the Lexical Composer, uploads, in-flight card, permission prompt
-    messages/            # MessageList, MessageBubble, WorkSection, ToolCard, markers, StatsCard
+    composer/            # InputArea and the Lexical Composer, uploads, in-flight card and jobs bar, permission prompt
+    transcript/          # TranscriptDialog: a subagent's transcript
+    messages/            # MessageList, MessageBubble, WorkSection, ToolCard, markers, StatsCard, live log, SessionLinksContext
     markdown/            # MarkdownBlock, CodeBlock, Shiki highlighting, EditDiff
     settings/            # SettingsPanel, ProviderCard, config ⇄ form draft mapping
     sidebar/             # Sidebar, WorkspacePicker, SessionSearch
     ui/                  # shadcn primitives plus Collapse and ResponsiveDialog
   hooks/
-    useChat.ts           # sessions, requests, and run streaming
+    useChat.ts           # sessions, requests, and the main view's runs
+    useSessionStream.ts  # snapshot-plus-stream core shared by useChat and useAgentSession
+    useAgentSession.ts   # a subagent session for the transcript dialog
     chatState.ts         # pure chat state: reducer, pending items, run event routing
   utils/
     messages.ts          # canonical messages → render messages, turn stats, current context
@@ -35,14 +38,14 @@ Components are grouped by the area of the screen they belong to. Pure logic sits
 
 ## Message State
 
-`useChat` keeps the shown session in a reducer (`chatState.ts`):
+`useChat` keeps the shown session in a reducer (`chatState.ts`), through `useSessionStream`:
 
 - `rawMessages` — canonical block messages, mirroring the JSONL timeline including `compact` markers
 - `toolRuntimeById` — live tool state: streaming output, pending flags, the final result
 - `sessionUsage` — session token and cost totals, `null` when unknown
 - `pending` — steers and queued messages handed to the server and not yet delivered
-- `jobs` — background commands running in the session
-- `permissions` — tool calls waiting for approval
+- `jobs` — background jobs (commands and agents) running in the session
+- `permissions` — tool calls waiting for approval, several when parallel subagents ask at once
 
 Every session load, switch or new draft replaces the whole state with `set_messages`, so nothing from the previous session leaks through. The reducer also runs eagerly into a ref, so request and stream callbacks read the current pending list rather than the last render's.
 
@@ -52,7 +55,9 @@ The rendered list is derived, never stored: `buildRenderMessages()` in `utils/me
 
 - A turn runs from one real user message to the next and renders as one assistant bubble. The assistant messages of a tool loop merge, and tool results fold into their `tool_use` card.
 - Manual compaction renders as a standalone divider. Automatic compaction (`meta.trigger: "auto"`) belongs to its turn and renders inside its bubble.
-- Background job notifications (text blocks with `meta.job`, see `docs/sessions.md`) render as a job marker in the user bubble's place: the marker opened the turn, so the reply is a bubble of its own.
+- Background job notifications (text blocks with `meta.job`, `docs/sessions.md`) render as a job marker in the user bubble's place, so the reply is a bubble of its own. A bash marker reads `Background finished` with the exit code and opens to the command and its output; an agent marker reads `Agent finished` with the outcome and opens to the reply. The projection also writes each job's state into the metadata of the call that started it: `running`, then the exit code or outcome, with the output as `job_output`.
+- A background bash card opens to the command and its output: the job's output once it has finished, before that its live log (`GET /api/sessions/{id}/logs/{tool_use_id}`), streamed only while the card is open. Its pill reads `background · running` or `background · exit N`.
+- An `agent` call renders as `AgentCard`: `agent  <description>` with a status pill (`running`, `12 tools · 45s · $0.03`, `failed`, `stopped`, `background`, `steered`). It opens to the latest steps while a blocking call runs, then to the reply; a background card opens once its job has replied. `Open transcript` appears once the call has named its child in `metadata.session_id`, and opens the child in the transcript dialog.
 - A finished turn whose work includes a tool call or automatic compaction folds into one summary row (`Worked for 23s · 2 edits · …`). A stopped or failed turn leads that row with `Stopped` or `Failed`. The running turn shows its work open; it never remounts when it folds.
 - A turn ends interrupted when its last record is a `cancelled` or `error` response, or a tool result with nothing after it (the SDK persists nothing for a stop between rounds), unless a steer continued the turn. An `error` event adds no content: it marks the tail assistant with the error, which renders as one plain line at the end of the bubble.
 - Streaming markdown runs `remend` on the last block only, to close unfinished syntax; finished text renders as written.
@@ -74,7 +79,9 @@ Turn stats (`TurnStats`, shown in the bubble footer and the composer):
 
 - A `409` on send or compact means a run is already active: the client attaches to that run's stream.
 - A dropped stream reloads the session with `GET /api/sessions/{id}` and attaches to its `active_run`. A snapshot's `pending_events` replay through the same event routing (`routeRunEvents()`) as the live stream, so permissions, stops and compaction come back the same way. If the reload fails, the turn is marked failed.
-- Runs this client did not start, such as a session woken by a finished background command, are announced on `GET /api/events`, held open for the page lifetime. Every event refreshes the session list. A `run_started` for the shown session syncs it: at once when the client is idle, otherwise once the current stream or start request ends.
+- Runs this client did not start, such as a session woken by a finished background job, are announced on `GET /api/events`, held open for the page lifetime. `useChat` holds the app's only subscription and forwards events and reconnects to listeners registered through `subscribeEvents()`, such as the transcript dialog. Every event except an agent run's refreshes the session list. A `run_started` for the shown session syncs it: at once when the client is idle, otherwise once the current stream or start request ends.
+
+`useSessionStream` holds what `useChat` and `useAgentSession` share: the reducer, `applySnapshot()`, which loads a snapshot's history and replays its `pending_events`, and `follow()`, which follows one run's stream and reloads the session through the owner's `reload` when the stream drops. Requests, pending items, and stops stay in the owner.
 
 Async work is guarded by ownership checks rather than locks. Each start request (`POST /api/chat`, `POST .../compact`) takes a token; a newer request or a session switch replaces it, and a response whose token or session is no longer current is abandoned. Streams and session loads carry their own tokens the same way. Every step that resumes after an `await` first checks that it still owns what it is about to change.
 
@@ -112,8 +119,20 @@ When a chat stream ends, the pending lists empty in one step:
 - Restored items come back through `InputArea`'s `prepend` handle, text and uploads together. Image previews come back as data URLs, since their blob URLs were revoked.
 - Slash commands complete while idle with no uploads. Skills from `GET /api/config` and `@` workspace files (`GET /api/workspaces/files`) complete while a run is active too. A ref or upload the model cannot ingest blocks submit with a notice; nothing is dropped silently.
 - ArrowUp in an empty composer recalls earlier prompts, stored per workspace.
-- Esc stops the active run; ⌘K / Ctrl+K opens `SessionSearch`. Both handlers live in `App` and yield to an event already handled, an active IME composition, or an open dialog.
-- Queued messages and running background jobs share a card above the composer, with actions to steer, edit, remove, or stop a job.
+- Esc stops the active run; ⌘K / Ctrl+K opens `SessionSearch`. Both handlers live in `App` and yield to an event already handled, an active IME composition, or an open dialog. An open popover, such as the jobs panel, takes Esc first.
+- Running background jobs and queued messages share a card above the composer. Queued messages have actions to steer, edit, or remove.
+- While jobs run, the card shows a bar with an icon and count per kind and the longest elapsed time. It opens a panel listing each job with its label, elapsed time, and Stop. A command's row shows that command's live log in the panel; an agent's row opens its transcript.
+- `PermissionPrompt` shows `agent: <description>` when a subagent asks.
+
+## Transcript Dialog
+
+`TranscriptDialog` shows a subagent's transcript over the chat. App state `transcript` (`{sessionId, childId}`) chooses it, and App clears it when the shown session changes.
+
+- It is a `ResponsiveDialog`, like `SettingsPanel`: a fixed-size dialog on desktop, a full-screen sheet on mobile. Opening another child swaps the view in place.
+- Cards, markers, and the jobs panel reach transcripts and logs through `SessionLinksContext` (`openAgent(childId)`, `logUrl(toolUseId)`) instead of props. App provides the parent session's links; the transcript provides its child's, without `logUrl`, since a subagent runs no background commands. Outside a provider the open actions do not render.
+- `useAgentSession` loads `GET /api/sessions/{id}/agents/{child_id}` and follows its `active_run` through `useSessionStream`, then reloads when the run ends so the header shows the outcome. It loads again on a `run_started` for `<parent>/<child>` and on an events reconnect, so a turn that starts after the dialog opened is attached. A load error, such as a `404` for a deleted child, shows in the body.
+- The body is a read-only `MessageList`. The header shows the description, the definition name, and a status: `running · <elapsed>`, the outcome from `last`, `starting` while the parent's call or job for the child runs but the child's turn has not begun, otherwise `interrupted`. A running background child has a Stop button.
+- While the dialog is open, the parent run's pending permission requests, the subagent's and the parent's own, show under its body, because the dialog covers the composer.
 
 ## Configuration
 

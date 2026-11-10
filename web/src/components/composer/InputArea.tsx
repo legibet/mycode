@@ -36,6 +36,7 @@ import type {
   ComposerSubmission,
   LocalConfig,
   PendingInput,
+  RenderMessage,
   UsageTotals,
 } from "@/types";
 import { cn } from "@/utils/cn";
@@ -73,9 +74,11 @@ interface InputAreaProps {
   /** Called only while the composer is empty. */
   onEditQueued: (id: string) => void;
   onRemoveQueued: (id: string) => void;
-  /** Background commands running in the session. */
+  /** Background jobs running in the session. */
   jobs?: BackgroundJobInfo[];
   onStopJob: (toolUseId: string) => void;
+  /** The session's rendered messages, where the jobs' calls are. */
+  messages?: RenderMessage[];
   supportsImages?: boolean;
   supportsDocuments?: boolean;
   config: LocalConfig;
@@ -117,6 +120,7 @@ export const InputArea = memo(function InputArea({
   onRemoveQueued,
   jobs = [],
   onStopJob,
+  messages = [],
   supportsImages = false,
   supportsDocuments = false,
   config,
@@ -356,6 +360,7 @@ export const InputArea = memo(function InputArea({
       <InFlightCard
         jobs={jobs}
         onStopJob={onStopJob}
+        messages={messages}
         queued={queued}
         onSteerQueued={onSteerQueued}
         onEditQueued={handleEditQueued}

@@ -221,6 +221,7 @@ function AssistantBubble({
       return (
         <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
           <ToolCard
+            id={block.id}
             name={block.name}
             args={block.input}
             output={block.runtime?.output}

@@ -767,7 +767,8 @@ describe("useChat", () => {
       expect(result.current.messages).toHaveLength(4);
     });
 
-    expect(result.current.sessionUsage).toBeNull();
+    // The snapshot's totals are current; replayed events do not replace them.
+    expect(result.current.sessionUsage).toEqual({ cost: { total: 0.4 } });
     expect(result.current.currentContext).toBeNull();
     expect(expectChat(result.current.messages[3]).stats).toEqual({
       input_tokens: 1_800,
@@ -2513,6 +2514,32 @@ describe("useChat server events", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
+  it("is idle after a dropped stream whose reload finds the run over", async () => {
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(createSessionResponse({ ...idleSession, active_run: runInfo("run-1") }))
+      .mockReturnValue(createSessionResponse(idleSession));
+    let drop!: () => void;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Ends without [DONE].
+        drop = () => controller.close();
+      },
+    });
+    const { result, fetchMock, source } = await renderWithSession(session, {
+      "/api/runs/run-1/stream": sseResponse(stream),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    drop();
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Nothing is streaming any more, so a run started elsewhere syncs at once.
+    source.emit({ type: "run_started", session_id: "session-1", run: runInfo("run-2") });
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(3));
+  });
+
   it("reloads for a run announced during a send that then fails", async () => {
     let rejectPost!: () => void;
     const posted = new Promise<void>((resolve) => {
@@ -2632,6 +2659,7 @@ describe("useChat server events", () => {
 
   const jobInfo = (tool_use_id: string, label = "sleep 30") => ({
     tool_use_id,
+    name: "bash" as const,
     label,
     pid: 7,
     started_at: "2026-01-01T00:00:00+00:00",
@@ -2749,6 +2777,24 @@ describe("useChat server events", () => {
 
     await waitFor(() => expect(hook.result.current.activeSession.isDraft).toBe(true));
     expect(hook.result.current.jobs).toEqual([]);
+  });
+
+  it("leaves agent runs to the transcript dialog", async () => {
+    const { fetchMock, source } = await renderWithSession(() => createSessionResponse(idleSession));
+    await act(async () => {});
+    const listCalls = calls(fetchMock, LIST_URL);
+
+    for (const type of ["run_started", "run_finished"]) {
+      source.emit({
+        type,
+        session_id: "session-1/call-a",
+        run: { ...runInfo("run-a"), session_id: "session-1/call-a", kind: "agent" },
+      });
+    }
+    await act(async () => {});
+
+    expect(calls(fetchMock, LIST_URL)).toBe(listCalls);
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
   });
 
   it("only refreshes the list for another session and never syncs a draft", async () => {

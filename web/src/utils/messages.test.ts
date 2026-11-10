@@ -5,6 +5,7 @@ import { isChatMessage, isCompactMarker } from "@/types";
 import {
   buildRenderMessages,
   createUserMessage,
+  findToolUse,
   markTailAssistantStopped,
   splitTurn,
   updateLatestThinkingDuration,
@@ -184,8 +185,10 @@ describe("messages", () => {
       renderKey: "jobs:4",
       jobs: [
         {
+          name: "bash",
           tool_use_id: "call-1",
           label: "pytest",
+          command: "pytest",
           exit_code: 1,
           output: "FAILED test_a\n\n1 failed",
         },
@@ -202,6 +205,7 @@ describe("messages", () => {
       pid: 42,
       log: "/tmp/job.log",
       exit_code: 1,
+      job_output: "FAILED test_a\n\n1 failed",
     });
     expect(start.runtime?.isError).toBe(false);
   });
@@ -285,7 +289,205 @@ describe("messages", () => {
       pid: 42,
       log: "/tmp/job.log",
       exit_code: -15,
+      job_output: "",
     });
+    // The same history projects to the same metadata, so the card does not re-render.
+    expect(startCard(buildRenderMessages(finished)).runtime?.metadata).toBe(
+      start.runtime?.metadata,
+    );
+  });
+
+  it("gives a finished command the full command of the call that started it", () => {
+    const command = `pytest ${"tests/test_a_rather_long_module_name.py ".repeat(3)}`.trim();
+    const rendered = buildRenderMessages([
+      { role: "user", content: [{ type: "text", text: "run tests later" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "call-1", name: "bash", input: { command } }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Background bash finished (pid 42, exit code 0): ${command.slice(0, 77)}...\n\nok`,
+            meta: {
+              job: {
+                tool_use_id: "call-1",
+                name: "bash",
+                label: `${command.slice(0, 77)}...`,
+                exit_code: 0,
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(rendered.at(-1)).toMatchObject({ kind: "job-marker", jobs: [{ command }] });
+  });
+
+  const agentStart: ChatMessage[] = [
+    { role: "user", content: [{ type: "text", text: "look around" }] },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "call-a",
+          name: "agent",
+          input: { description: "Map the config", prompt: "…", background: true },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "call-a",
+          output: "Started agent in background: Map the config\nAgent id: call-a",
+          metadata: { agent: "reviewer", session_id: "call-a", background: true },
+          is_error: false,
+        },
+      ],
+    },
+    { role: "assistant", content: [{ type: "text", text: "started" }] },
+  ];
+  const agentFinished: ChatMessage = {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: "Agent finished: Map the config\n\nConfig loads from **two** files.",
+        meta: {
+          job: {
+            tool_use_id: "call-a",
+            name: "agent",
+            label: "Map the config",
+            session_id: "call-a",
+            status: "completed",
+            tool_calls: 12,
+            duration_ms: 45210,
+            usage: { input_tokens: 10, output_tokens: 2 },
+            cost: { total: 0.03 },
+          },
+        },
+      },
+    ],
+  };
+
+  it("marks a background agent's start card running, then with its job's outcome", () => {
+    const running = startCard(buildRenderMessages(agentStart, {}, new Set(["call-a"])));
+    expect(running.runtime?.metadata).toEqual({
+      agent: "reviewer",
+      session_id: "call-a",
+      background: true,
+      running: true,
+    });
+
+    const rendered = buildRenderMessages([...agentStart, agentFinished]);
+    expect(startCard(rendered).runtime?.metadata).toEqual({
+      agent: "reviewer",
+      session_id: "call-a",
+      background: true,
+      status: "completed",
+      tool_calls: 12,
+      duration_ms: 45210,
+      cost: { total: 0.03 },
+      job_output: "Config loads from **two** files.",
+    });
+    expect(rendered.at(-1)).toEqual({
+      kind: "job-marker",
+      sourceIndex: 4,
+      renderKey: "jobs:4",
+      jobs: [
+        {
+          name: "agent",
+          tool_use_id: "call-a",
+          label: "Map the config",
+          session_id: "call-a",
+          output: "Config loads from **two** files.",
+          status: "completed",
+          tool_calls: 12,
+          duration_ms: 45210,
+          cost: { total: 0.03 },
+        },
+      ],
+    });
+  });
+
+  describe("a blocking agent's spend in its turn's stats", () => {
+    const agentResult = {
+      agent: "reviewer",
+      session_id: "call-a",
+      background: false,
+      status: "completed",
+      tool_calls: 3,
+      duration_ms: 9000,
+      usage: { input_tokens: 40, output_tokens: 4 },
+      cost: { total: 0.02 },
+    };
+    const turn = (assistantMeta: Record<string, unknown>[]): ChatMessage[] => [
+      { role: "user", content: [{ type: "text", text: "map it" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "call-a", name: "agent", input: { description: "Map" } }],
+        meta: assistantMeta[0] ?? {},
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call-a",
+            output: "two files",
+            metadata: agentResult,
+            is_error: false,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Two files." }],
+        meta: assistantMeta[1] ?? {},
+      },
+    ];
+    const stats = (messages: ChatMessage[]) => expectChat(buildRenderMessages(messages)[1]).stats;
+
+    it("adds to the persisted per-request spend", () => {
+      const result = stats(
+        turn([
+          { usage: { input_tokens: 100, output_tokens: 10 }, cost: { total: 0.01 } },
+          { usage: { input_tokens: 120, output_tokens: 5 }, cost: { total: 0.01 } },
+        ]),
+      );
+
+      expect(result).toMatchObject({ input_tokens: 260, output_tokens: 19 });
+      expect(result?.cost?.total).toBeCloseTo(0.04);
+    });
+
+    it("adds to the streamed turn totals, which leave it out", () => {
+      const result = stats(
+        turn([
+          {},
+          { turn_usage: { input_tokens: 220, output_tokens: 15 }, turn_cost: { total: 0.02 } },
+        ]),
+      );
+
+      expect(result).toMatchObject({ input_tokens: 260, output_tokens: 19 });
+      expect(result?.cost?.total).toBeCloseTo(0.04);
+    });
+  });
+
+  it("finds a rendered tool call by id, with its runtime", () => {
+    const rendered = buildRenderMessages(agentStart);
+
+    expect(findToolUse(rendered, "call-a")).toMatchObject({
+      name: "agent",
+      runtime: { metadata: { session_id: "call-a" } },
+    });
+    expect(findToolUse(rendered, "missing")).toBeNull();
   });
 
   it("puts the job marker ahead of a steer's user bubble", () => {
@@ -319,7 +521,7 @@ describe("messages", () => {
     const [, , , user, reply] = renderMessages.map((m) => (isChatMessage(m) ? m : null));
     expect(marker).toMatchObject({
       kind: "job-marker",
-      jobs: [{ tool_use_id: "call-2", label: "make", exit_code: 0, output: "ok" }],
+      jobs: [{ tool_use_id: "call-2", label: "make", command: "make", exit_code: 0, output: "ok" }],
     });
     expect(user?.role).toBe("user");
     expect(user?.content).toMatchObject([{ type: "text", text: "also lint" }]);

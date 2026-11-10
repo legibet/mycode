@@ -4,7 +4,7 @@ import type { GlobalConfig } from "@/api";
 import { buildDraft, buildPayload } from "@/components/settings/settingsDraft";
 
 describe("settings draft", () => {
-  it("round-trips a loaded config, keeping saved keys and model overrides", () => {
+  it("round-trips a loaded config, keeping saved keys, model overrides and subagent models", () => {
     const loaded: GlobalConfig = {
       compact_threshold: false,
       permission: "standard",
@@ -19,6 +19,7 @@ describe("settings draft", () => {
           api_key_saved: false,
         },
       },
+      subagent: { models: ["local/a"] },
     };
 
     expect(buildPayload(buildDraft(loaded))).toEqual({
@@ -33,6 +34,7 @@ describe("settings draft", () => {
           api_key: null,
         },
       },
+      subagent: { models: ["local/a"] },
     });
   });
 

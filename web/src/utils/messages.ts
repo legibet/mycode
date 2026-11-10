@@ -1,6 +1,7 @@
 /** Message block helpers and the render-message projection. */
 
 import type {
+  AgentOutcome,
   AttachedFile,
   ChatMessage,
   CompactMarkerMessage,
@@ -391,6 +392,33 @@ export function readUsageTotals(
   return Object.keys(totals).length > 0 ? totals : null;
 }
 
+/**
+ * Session or turn totals plus a blocking subagent call's spend, from its
+ * result metadata's `usage` and `cost`; the totals unchanged when it carries
+ * neither.
+ */
+export function addAgentSpend<T extends UsageTotals>(
+  totals: T | null,
+  metadata: Record<string, unknown>,
+): T | null {
+  const usage = isObject(metadata["usage"]) ? metadata["usage"] : {};
+  const cost = readCost(metadata["cost"]);
+  const next = { ...totals } as T;
+  let added = false;
+  for (const key of USAGE_TOKEN_KEYS) {
+    const value = usage[key];
+    if (typeof value !== "number") continue;
+    next[key] = (next[key] ?? 0) + value;
+    added = true;
+  }
+  if (cost) {
+    const total = addCost(next.cost, cost);
+    if (total) next.cost = total;
+    added = true;
+  }
+  return added ? next : totals;
+}
+
 function addCost(total: Cost | undefined, request: Cost | undefined) {
   if (!request) return total;
   if (!total) return { ...request };
@@ -498,51 +526,97 @@ function foldTurnStats(
   return stats;
 }
 
-interface JobMeta {
-  tool_use_id?: unknown;
-  label?: unknown;
-  exit_code?: unknown;
+/**
+ * The outcome fields an agent call's result metadata, its job notification,
+ * and its `agent.json` share; null when `status` is not one.
+ */
+export function readAgentOutcome(value: unknown): AgentOutcome | null {
+  if (!isObject(value)) return null;
+  const status = value["status"];
+  if (status !== "completed" && status !== "failed" && status !== "cancelled") return null;
+  const outcome: AgentOutcome = {
+    status,
+    tool_calls: typeof value["tool_calls"] === "number" ? value["tool_calls"] : 0,
+    duration_ms: typeof value["duration_ms"] === "number" ? value["duration_ms"] : 0,
+  };
+  const cost = readCost(value["cost"]);
+  if (cost) outcome.cost = cost;
+  return outcome;
 }
 
-/** A background job notification: a text block whose `meta.job` names the command (`docs/sessions.md`). */
+/** A background job notification: a text block whose `meta.job` names the job (`docs/sessions.md`). */
 export function isJobBlock(
   block: MessageBlock,
 ): block is TextBlock & { meta: Record<string, unknown> } {
   return block.type === "text" && Boolean(block.meta?.["job"]);
 }
 
-/** Read a background job notification. */
-function jobResult(block: TextBlock): JobResult {
-  const job = (block.meta?.["job"] ?? {}) as JobMeta;
+/**
+ * Read a background job notification. A bash job's full command comes from
+ * the input of the call that started it, `startInput`, when it is projected.
+ */
+function jobResult(
+  block: TextBlock,
+  startInput: (toolUseId: string) => Record<string, unknown> | undefined,
+): JobResult {
+  const job = isObject(block.meta?.["job"]) ? block.meta["job"] : {};
+  const toolUseId = typeof job["tool_use_id"] === "string" ? job["tool_use_id"] : "";
+  const label = typeof job["label"] === "string" ? job["label"] : "";
+  // The text is the header lines, a blank line, then the output.
+  const output = block.text.split("\n\n").slice(1).join("\n\n");
+  if (job["name"] === "agent") {
+    return {
+      name: "agent",
+      tool_use_id: toolUseId,
+      label,
+      session_id: typeof job["session_id"] === "string" ? job["session_id"] : "",
+      output,
+      ...(readAgentOutcome(job) ?? { status: "failed", tool_calls: 0, duration_ms: 0 }),
+    };
+  }
+  const command = startInput(toolUseId)?.["command"];
   return {
-    tool_use_id: typeof job.tool_use_id === "string" ? job.tool_use_id : "",
-    label: typeof job.label === "string" ? job.label : "",
-    exit_code: typeof job.exit_code === "number" ? job.exit_code : 0,
-    // The text is the header lines, a blank line, then the bounded output.
-    output: block.text.split("\n\n").slice(1).join("\n\n"),
+    name: "bash",
+    tool_use_id: toolUseId,
+    label,
+    command: typeof command === "string" && command ? command : label,
+    exit_code: typeof job["exit_code"] === "number" ? job["exit_code"] : 0,
+    output,
   };
 }
 
-/** What the projection knows about the job a bash call started. */
-type JobStatus = { running: true } | { exit_code: number };
+/** What a finished job adds to the metadata of the call that started it: how it ended, and its output. */
+function jobFields(job: JobResult): Record<string, unknown> {
+  if (job.name === "bash") return { exit_code: job.exit_code, job_output: job.output };
+  const { status, tool_calls, duration_ms, cost } = job;
+  return { status, tool_calls, duration_ms, ...(cost && { cost }), job_output: job.output };
+}
 
-// The start card's metadata with its job's status, built once per metadata
-// object and status: MessageBubble compares metadata by identity.
-const metadataWithStatus = new WeakMap<object, Map<string, Record<string, unknown>>>();
+/** A running job's fields, and the key of its start card's metadata. */
+const RUNNING = { running: true };
 
-/** Mark the bash call that started a background job with the job's status. */
-function withJobStatus(block: ToolUseBlock, status: JobStatus): ToolUseBlock {
+// The start card's metadata with its job's fields, built once per metadata
+// object and job state: MessageBubble compares metadata by identity. A
+// finished job's state is keyed by its notification block, which keeps its
+// identity across projections.
+const metadataWithJob = new WeakMap<object, WeakMap<object, Record<string, unknown>>>();
+
+/** Mark the call that started a background job with the job's state. */
+function withJobFields(
+  block: ToolUseBlock,
+  key: object,
+  fields: Record<string, unknown>,
+): ToolUseBlock {
   const runtime = block.runtime;
   if (!runtime?.metadata) return block;
-  const key = "running" in status ? "running" : `exit:${status.exit_code}`;
-  let variants = metadataWithStatus.get(runtime.metadata);
+  let variants = metadataWithJob.get(runtime.metadata);
   if (!variants) {
-    variants = new Map();
-    metadataWithStatus.set(runtime.metadata, variants);
+    variants = new WeakMap();
+    metadataWithJob.set(runtime.metadata, variants);
   }
   let metadata = variants.get(key);
   if (!metadata) {
-    metadata = { ...runtime.metadata, ...status };
+    metadata = { ...runtime.metadata, ...fields };
     variants.set(key, metadata);
   }
   return { ...block, runtime: { ...runtime, metadata } };
@@ -570,8 +644,8 @@ export function buildRenderMessages(
 
   const result: RenderMessage[] = [];
   const toolIndex = new Map<string, ToolIndexEntry>();
-  // Exit codes of finished background jobs, by the tool_use that started them.
-  const jobExits = new Map<string, number>();
+  // Finished background jobs and their notifications, by the tool_use that started them.
+  const finishedJobs = new Map<string, { job: JobResult; notice: TextBlock }>();
   let currentAssistant: ChatMessage | null = null;
   // A turn runs from a real user message to the next one and renders as one
   // assistant bubble, which owns the turn's stats.
@@ -581,8 +655,14 @@ export function buildRenderMessages(
   // Latest persisted record that the SDK reported a usage event for.
   let turnEndedAt: string | undefined;
   let turnInterruption: Interruption | undefined;
+  // Results of the turn's blocking agent calls: their spend is billed to the
+  // child session, not to the parent's records or usage events.
+  let turnAgentResults: Record<string, unknown>[] = [];
 
   const commitTurn = () => {
+    for (const metadata of turnAgentResults) {
+      turnStats = addAgentSpend(turnStats ?? null, metadata) ?? undefined;
+    }
     // A streamed duration wins: a reattached run's history ends before the
     // records still streaming.
     const durationMs = turnStats?.duration_ms ?? elapsedMs(turnStartedAt, turnEndedAt);
@@ -603,6 +683,14 @@ export function buildRenderMessages(
     turnStartedAt = undefined;
     turnEndedAt = undefined;
     turnInterruption = undefined;
+    turnAgentResults = [];
+  };
+
+  const projectedInput = (toolUseId: string) => {
+    const entry = toolIndex.get(toolUseId);
+    const message = entry && result[entry.messageIndex];
+    const block = message && isChatMessage(message) ? message.content[entry.blockIndex] : undefined;
+    return block?.type === "tool_use" ? block.input : undefined;
   };
 
   const ensureAssistantRenderMessage = (sourceIndex: number) => {
@@ -653,9 +741,9 @@ export function buildRenderMessages(
           continue;
         }
         if (isJobBlock(block)) {
-          const job = jobResult(block);
+          const job = jobResult(block, projectedInput);
           jobs.push(job);
-          jobExits.set(job.tool_use_id, job.exit_code);
+          finishedJobs.set(job.tool_use_id, { job, notice: block });
           continue;
         }
         if (
@@ -727,6 +815,9 @@ export function buildRenderMessages(
             const targetContent = [...getBlocks(target)];
             const targetBlock = targetContent[entry.blockIndex];
             if (targetBlock?.type === "tool_use") {
+              if (targetBlock.name === "agent" && isObject(block.metadata)) {
+                turnAgentResults.push(block.metadata);
+              }
               targetContent[entry.blockIndex] = {
                 ...targetBlock,
                 runtime: buildToolRuntime(runtime, block),
@@ -846,23 +937,32 @@ export function buildRenderMessages(
     })
     .map((message) => {
       if (!isChatMessage(message)) return message;
-      if (jobExits.size === 0 && runningJobs.size === 0) return message;
+      if (finishedJobs.size === 0 && runningJobs.size === 0) return message;
       let marked = false;
       const content = message.content.map((block) => {
         if (block.type !== "tool_use") return block;
-        const exitCode = jobExits.get(block.id);
-        const status: JobStatus | null =
-          exitCode !== undefined
-            ? { exit_code: exitCode }
-            : runningJobs.has(block.id)
-              ? { running: true }
-              : null;
-        if (!status) return block;
+        const finished = finishedJobs.get(block.id);
+        if (finished) {
+          marked = true;
+          return withJobFields(block, finished.notice, jobFields(finished.job));
+        }
+        if (!runningJobs.has(block.id)) return block;
         marked = true;
-        return withJobStatus(block, status);
+        return withJobFields(block, RUNNING, RUNNING);
       });
       return marked ? { ...message, content } : message;
     });
+}
+
+/** The `tool_use` block with this id in rendered messages, with its runtime. */
+export function findToolUse(messages: RenderMessage[], id: string): ToolUseBlock | null {
+  for (const message of messages) {
+    if (!isChatMessage(message)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use" && block.id === id) return block;
+    }
+  }
+  return null;
 }
 
 /**

@@ -1,9 +1,10 @@
 /**
- * Sessions and runs for the chat UI: session loading, start requests, the
- * run stream, steer and queue, and Stop. Message state lives in chatState.
+ * Sessions and runs for the chat UI: the session list, session loading,
+ * start requests, steer and queue, and Stop. Message state and the run
+ * stream come from useSessionStream, which the agent transcript shares.
  */
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ChatResponse,
@@ -15,19 +16,17 @@ import type {
   SessionResponse,
   SessionsResponse,
 } from "@/api";
-import { fetchJson, readApiError, readSse, SSE_DONE } from "@/api";
+import { fetchJson, openServerEvents, readApiError } from "@/api";
 import {
   buildInputBlocks,
   type ChatAction,
-  chatReducer,
   createDraftSession,
   createPendingInput,
   dedupeWorkspaceFiles,
-  INITIAL_CHAT_STATE,
   pendingFromMessage,
   resolveInitialSession,
-  routeRunEvents,
 } from "@/hooks/chatState";
+import { useSessionStream } from "@/hooks/useSessionStream";
 import type {
   AttachedFile,
   ComposerSubmission,
@@ -37,8 +36,18 @@ import type {
   SessionSummary,
 } from "@/types";
 import { getReasoningEffortOverride } from "@/utils/config";
-import { buildRenderMessages, currentContext, readUsageTotals } from "@/utils/messages";
+import { currentContext } from "@/utils/messages";
 import { loadActiveSession, removeActiveSession, saveActiveSession } from "@/utils/storage";
+
+/** A listener on the app's one `/api/events` subscription. There is no
+ * replay, so a reconnect is the cue to resync. */
+interface ServerEventsListener {
+  onEvent: (event: ServerEvent) => void;
+  onReconnect: () => void;
+}
+
+/** Add a listener; returns the function that removes it. */
+export type SubscribeServerEvents = (listener: ServerEventsListener) => () => void;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
@@ -67,20 +76,32 @@ export function useChat(
   remoteConfig?: RemoteConfig | null,
   onRestore?: (items: PendingInput[]) => void,
 ) {
-  const [chatState, setChatState] = useState(INITIAL_CHAT_STATE);
-  // The reducer runs eagerly into this ref so async request and stream code
-  // reads the current pending list, not the one from the last render.
-  const chatStateRef = useRef(chatState);
-  const dispatch = useCallback((action: ChatAction) => {
-    chatStateRef.current = chatReducer(chatStateRef.current, action);
-    setChatState(chatStateRef.current);
-  }, []);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSession, setActiveSession] = useState(createDraftSession);
+  const [compactError, setCompactError] = useState<string | null>(null);
+  const loadSessionRef = useRef<typeof loadSession | null>(null);
+  const reload = useCallback(
+    (sessionId: string) => loadSessionRef.current?.(sessionId) ?? Promise.resolve(null),
+    [],
+  );
+  const {
+    chatState,
+    chatStateRef,
+    dispatch,
+    messages,
+    activeRunRef,
+    isStreaming,
+    follow,
+    stop,
+    applySnapshot,
+  } = useSessionStream({
+    initialSessionId: activeSession.id,
+    reload,
+    onCompactError: setCompactError,
+  });
   // Kind of the run this client is following; null when idle. `loading` is
   // derived so chat and compact runs share the busy/cancel plumbing.
   const [runKind, setRunKind] = useState<RunKind | null>(null);
-  const [compactError, setCompactError] = useState<string | null>(null);
   // A rejected send is a request failure, not the outcome of any turn.
   const [sendError, setSendError] = useState<string | null>(null);
   const loading = runKind !== null;
@@ -100,15 +121,11 @@ export function useChat(
    * is stopped as soon as it arrives. */
   const stoppedRequestTokenRef = useRef(0);
   const sessionRequestTokenRef = useRef(0);
-  const streamAbortRef = useRef<AbortController | null>(null);
-  const streamTokenRef = useRef(0);
-  const activeRunRef = useRef<RunInfo | null>(null);
   const onRestoreRef = useRef(onRestore);
   const sendPendingRef = useRef<typeof sendPending | null>(null);
   /** Steer and queue requests in flight. A stream end waits for them before
    * deciding what is still pending. */
   const inflightRef = useRef(new Set<Promise<void>>());
-  const loadSessionRef = useRef<typeof loadSession | null>(null);
   /** Set when the shown session must be reloaded once this client is quiet:
    * a run started there while a stream or a start request was in flight, or
    * the event stream reconnected. Holds the run id, or `"*"` for a reconnect. */
@@ -123,12 +140,15 @@ export function useChat(
     const { steers, queue } = chatStateRef.current.pending;
     if (steers.length || queue.length) dispatch({ type: "clear_pending" });
     return [...steers, ...queue];
-  }, [dispatch]);
+  }, [chatStateRef, dispatch]);
 
-  const isPending = useCallback((id: string) => {
-    const { steers, queue } = chatStateRef.current.pending;
-    return [...steers, ...queue].some((item) => item.id === id);
-  }, []);
+  const isPending = useCallback(
+    (id: string) => {
+      const { steers, queue } = chatStateRef.current.pending;
+      return [...steers, ...queue].some((item) => item.id === id);
+    },
+    [chatStateRef],
+  );
 
   const restorePending = useCallback((items: PendingInput[]) => {
     if (items.length) onRestoreRef.current?.(items);
@@ -191,15 +211,12 @@ export function useChat(
   }, [config.cwd, setActiveSessionSummary]);
 
   const stopStreaming = useCallback(() => {
-    streamTokenRef.current += 1;
+    stop();
     startRequestTokenRef.current = 0;
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
-    activeRunRef.current = null;
     setRunKind(null);
     setCompactError(null);
     setSendError(null);
-  }, []);
+  }, [stop]);
 
   /** Whether a start request's response may still change the UI. Session and
    * workspace switches clear the start request token, except the initial
@@ -212,127 +229,49 @@ export function useChat(
 
   /** Reload the shown session for a run announced while this client was
    * busy, once nothing of its own is in flight. */
-  const resyncIfQuiet = useCallback((sessionId: string) => {
-    if (!resyncRef.current || streamAbortRef.current || startRequestTokenRef.current) return;
-    if (activeSessionRef.current.id !== sessionId) return;
-    resyncRef.current = null;
-    void loadSessionRef.current?.(sessionId).catch((error) => {
-      console.error("Failed to sync session:", error);
-    });
-  }, []);
+  const resyncIfQuiet = useCallback(
+    (sessionId: string) => {
+      if (!resyncRef.current || isStreaming() || startRequestTokenRef.current) return;
+      if (activeSessionRef.current.id !== sessionId) return;
+      resyncRef.current = null;
+      void loadSessionRef.current?.(sessionId).catch((error) => {
+        console.error("Failed to sync session:", error);
+      });
+    },
+    [isStreaming],
+  );
 
   const streamRun = useCallback(
     async (run: RunInfo, sessionId: string, after = 0, interrupted = false): Promise<void> => {
-      // Stopped or failed runs return pending input to the composer; a run
-      // that ended normally sends it as the next turn.
-      let stopped = interrupted;
-      let sawDone = false;
-
-      const token = ++streamTokenRef.current;
-      streamAbortRef.current?.abort();
       // The run this client was told about is the one it now follows.
       if (resyncRef.current === run.id) resyncRef.current = null;
+      setRunKind(run.kind);
 
-      const controller = new AbortController();
-      streamAbortRef.current = controller;
-      activeRunRef.current = run;
-      const kind = run.kind;
-      setRunKind(kind);
-      // Whether this stream still drives the UI: no newer stream, same session.
-      const isCurrent = () =>
-        streamTokenRef.current === token && activeSessionRef.current.id === sessionId;
+      const end = await follow(run, sessionId, after, interrupted);
+      if (!end) return;
 
-      const recoverSession = async () => {
-        if (!isCurrent()) return true;
-
-        const reload = loadSessionRef.current;
-        if (!reload) {
-          return false;
-        }
-
-        try {
-          await reload(sessionId);
-          return true;
-        } catch (error) {
-          console.error("Failed to recover disconnected stream:", error);
-          return false;
-        }
-      };
-
-      // The stream ended early and the session could not be reloaded.
-      const markDisconnected = () => {
-        if (!isCurrent()) return;
-        const message = "Stream disconnected. Reload the session to resume.";
-        stopped = true;
-        if (kind === "compact") {
-          setCompactError(message);
+      if (activeSessionRef.current.id === sessionId) {
+        // Stopped or failed runs return pending input to the composer; a run
+        // that ended normally sends it as the next turn.
+        if (run.kind === "chat" && (end.sawDone || end.stopped)) {
+          // The run stays busy until its pending input is settled, so a
+          // send cannot race the leftovers' own request.
+          await Promise.all(inflightRef.current);
+          if (end.isCurrent()) {
+            setRunKind(null);
+            const items = takePending();
+            if (end.stopped) restorePending(items);
+            else if (items.length) sendPendingRef.current?.(items);
+          }
         } else {
-          dispatch({ type: "apply_event", event: { type: "error", message } });
-        }
-      };
-
-      try {
-        const res = await fetch(`/api/runs/${encodeURIComponent(run.id)}/stream?after=${after}`, {
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-        for await (const event of readSse(res)) {
-          if (event === SSE_DONE) {
-            sawDone = true;
-            continue;
-          }
-          if (!isCurrent()) continue;
-          const routed = routeRunEvents(kind, [event]);
-          if (routed.stopped) stopped = true;
-          if (routed.compactError !== null) {
-            console.error("Compaction failed:", routed.compactError);
-            setCompactError(routed.compactError);
-          }
-          for (const applied of routed.apply) {
-            dispatch({ type: "apply_event", event: applied });
-          }
-        }
-
-        if (kind === "compact" && sawDone) {
-          await recoverSession();
-        }
-
-        if (!sawDone) {
-          if (await recoverSession()) return;
-          markDisconnected();
-        }
-      } catch (e) {
-        if (!(e instanceof Error) || e.name !== "AbortError") {
-          if (!(await recoverSession())) markDisconnected();
-        }
-      } finally {
-        if (streamTokenRef.current === token) {
-          streamAbortRef.current = null;
-          activeRunRef.current = null;
-
-          if (activeSessionRef.current.id === sessionId) {
-            if (kind === "chat" && (sawDone || stopped)) {
-              // The run stays busy until its pending input is settled, so a
-              // send cannot race the leftovers' own request.
-              await Promise.all(inflightRef.current);
-              if (isCurrent()) {
-                setRunKind(null);
-                const items = takePending();
-                if (stopped) restorePending(items);
-                else if (items.length) sendPendingRef.current?.(items);
-              }
-            } else {
-              setRunKind(null);
-            }
-          }
-
-          void fetchSessions();
-          resyncIfQuiet(sessionId);
+          setRunKind(null);
         }
       }
+
+      void fetchSessions();
+      resyncIfQuiet(sessionId);
     },
-    [fetchSessions, resyncIfQuiet, restorePending, takePending, dispatch],
+    [fetchSessions, follow, resyncIfQuiet, restorePending, takePending],
   );
 
   const loadSession = useCallback(
@@ -356,40 +295,22 @@ export function useChat(
 
       setActiveSessionSummary(session);
       saveActiveSession(requestCwd, session.id);
-      const run = data.active_run;
 
-      // Replayed events take the live stream's route.
-      const replay = routeRunEvents(run?.kind ?? "chat", data.pending_events);
-      if (replay.compactError !== null) setCompactError(replay.compactError);
-      startTransition(() => {
-        dispatch({
-          type: "set_messages",
-          messages: data.messages,
-          sessionId: session.id,
-          sessionUsage: readUsageTotals(data.session_usage, data.session_cost),
-          replayEvents: replay.apply,
-          expectedSessionId: session.id,
-          pending: {
-            steers: data.pending.steers.map(pendingFromMessage),
-            queue: data.pending.queue.map(pendingFromMessage),
-          },
-          jobs: data.jobs,
-        });
+      const { run, after, stopped, compactError } = applySnapshot(data, session.id, {
+        steers: data.pending.steers.map(pendingFromMessage),
+        queue: data.pending.queue.map(pendingFromMessage),
       });
-
-      activeRunRef.current = run;
+      if (compactError !== null) setCompactError(compactError);
 
       if (run) {
-        // The history covers every event up to the run's last seq when none is pending.
-        const lastSeq = data.pending_events.at(-1)?.seq ?? run.last_seq;
-        void streamRun(run, session.id, lastSeq, replay.stopped);
+        void streamRun(run, session.id, after, stopped);
       } else {
         setRunKind(null);
       }
 
       return data;
     },
-    [config.cwd, dispatch, setActiveSessionSummary, streamRun],
+    [applySnapshot, config.cwd, setActiveSessionSummary, streamRun],
   );
 
   useEffect(() => {
@@ -405,10 +326,7 @@ export function useChat(
     }
     const sessionId = activeSessionRef.current.id;
 
-    streamTokenRef.current += 1;
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
-    activeRunRef.current = null;
+    stop();
     dispatch({ type: "clear_permissions" });
     // The aborted stream never sees its `cancelled`, so undelivered input
     // goes back to the composer here. A steer committed just before the stop
@@ -446,7 +364,7 @@ export function useChat(
       if (activeSessionRef.current.id !== sessionId) return;
       restorePending(items.filter((item) => !delivered.has(item.id)));
     })();
-  }, [dispatch, fetchSessions, restorePending, takePending]);
+  }, [activeRunRef, dispatch, fetchSessions, restorePending, stop, takePending]);
 
   /** Optimistic turn plus `POST /api/chat` with the current model settings.
    * @param pendingItems Pending items this request sends; a rejection returns
@@ -651,7 +569,7 @@ export function useChat(
       track(list === "steers" ? deliverSteer(run.id, item) : deliverQueued(item));
       return true;
     },
-    [deliverQueued, deliverSteer, dispatch, track],
+    [activeRunRef, deliverQueued, deliverSteer, dispatch, track],
   );
 
   const steer = useCallback(
@@ -699,7 +617,7 @@ export function useChat(
         return null;
       }
     },
-    [dispatch, isPending],
+    [chatStateRef, dispatch, isPending],
   );
 
   /** Move a queued message to the current turn. The server moves the message
@@ -834,7 +752,7 @@ export function useChat(
         console.error("Failed to send decision:", e);
       }
     },
-    [pendingPermission],
+    [activeRunRef, pendingPermission],
   );
 
   const createSession = useCallback(() => {
@@ -1005,25 +923,25 @@ export function useChat(
     })();
   }, [config.cwd, setActiveSessionSummary, showDraft, stopStreaming, dispatch]);
 
-  useEffect(() => {
-    return () => {
-      stopStreaming();
-    };
-  }, [stopStreaming]);
-
   // Runs this client did not start, such as a session woken by a finished
-  // background command, are announced on `/api/events`. The shown session is
+  // background job, are announced on `/api/events`. The shown session is
   // reloaded to attach to them: at once when idle, otherwise when the current
-  // stream ends. There is no replay, so a reconnect reloads as well.
-  useEffect(() => {
-    if (typeof EventSource === "undefined") return;
-    const source = new EventSource("/api/events");
-    let connected = false;
+  // stream ends. There is no replay, so a reconnect reloads as well. Every
+  // event also reaches the listeners of `subscribeEvents`, such as the
+  // transcript dialog, which alone handles agent runs.
+  const eventListenersRef = useRef(new Set<ServerEventsListener>());
+  const subscribeEvents = useCallback<SubscribeServerEvents>((listener) => {
+    eventListenersRef.current.add(listener);
+    return () => {
+      eventListenersRef.current.delete(listener);
+    };
+  }, []);
 
+  useEffect(() => {
     const sync = (runId: string) => {
       const session = activeSessionRef.current;
       if (session.isDraft) return;
-      if (streamAbortRef.current || startRequestTokenRef.current) {
+      if (isStreaming() || startRequestTokenRef.current) {
         resyncRef.current = runId;
         return;
       }
@@ -1032,32 +950,30 @@ export function useChat(
       });
     };
 
-    source.onopen = () => {
-      // The initial load covers the first connection; later opens are reconnects.
-      if (connected) sync("*");
-      connected = true;
-    };
-    source.onmessage = (message: MessageEvent<string>) => {
-      let event: ServerEvent;
-      try {
-        event = JSON.parse(message.data) as ServerEvent;
-      } catch {
-        return;
-      }
-      void fetchSessions();
-      if (event.session_id !== activeSessionRef.current.id) return;
-      if (event.type === "job_started") {
-        dispatch({ type: "job_started", job: event.job });
-      } else if (event.type === "job_finished") {
-        dispatch({ type: "job_finished", toolUseId: event.job.tool_use_id });
-      } else if (event.type === "run_started" && event.run.id !== activeRunRef.current?.id) {
-        sync(event.run.id);
-      }
-    };
-    return () => source.close();
-  }, [dispatch, fetchSessions]);
+    return openServerEvents(
+      (event) => {
+        for (const listener of eventListenersRef.current) listener.onEvent(event);
+        if ("run" in event && event.run.kind === "agent") return;
+        void fetchSessions();
+        if (event.session_id !== activeSessionRef.current.id) return;
+        if (event.type === "job_started") {
+          dispatch({ type: "job_started", job: event.job });
+        } else if (event.type === "job_finished") {
+          dispatch({ type: "job_finished", toolUseId: event.job.tool_use_id });
+        } else if (event.type === "run_started" && event.run.id !== activeRunRef.current?.id) {
+          sync(event.run.id);
+        }
+      },
+      // The initial load covers the first connection.
+      (reconnect) => {
+        if (!reconnect) return;
+        for (const listener of eventListenersRef.current) listener.onReconnect();
+        sync("*");
+      },
+    );
+  }, [activeRunRef, dispatch, fetchSessions, isStreaming]);
 
-  /** Kill a running background command. Its result still reaches the model;
+  /** Stop a running background job, a command or an agent. Its result still reaches the model;
    * the job leaves the list with the `job_finished` event. */
   const stopJob = useCallback(async (toolUseId: string) => {
     const sessionId = activeSessionRef.current.id;
@@ -1068,21 +984,13 @@ export function useChat(
       );
       // 404: already finished.
       if (!res.ok && res.status !== 404) {
-        setSendError(`Failed to stop background command (${res.status})`);
+        setSendError(`Failed to stop background job (${res.status})`);
       }
     } catch (e) {
       setSendError(getErrorMessage(e));
     }
   }, []);
 
-  const runningJobIds = useMemo(
-    () => new Set(chatState.jobs.map((job) => job.tool_use_id)),
-    [chatState.jobs],
-  );
-  const messages = useMemo(
-    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById, runningJobIds),
-    [chatState.rawMessages, chatState.toolRuntimeById, runningJobIds],
-  );
   const context = useMemo(() => currentContext(messages), [messages]);
 
   return {
@@ -1101,6 +1009,7 @@ export function useChat(
     pending: chatState.pending,
     jobs: chatState.jobs,
     stopJob,
+    subscribeEvents,
     send,
     steer,
     queue,

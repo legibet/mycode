@@ -19,6 +19,7 @@ import type {
 } from "@/types";
 import { randomId } from "@/utils/id";
 import {
+  addAgentSpend,
   appendAssistantDelta,
   appendToolResult,
   appendToolUse,
@@ -44,7 +45,7 @@ interface ChatState {
   /** Steers and queued messages handed to the running chat and not yet
    * delivered by a `user_message` event. */
   pending: PendingInputs;
-  /** Background commands running in this session, from the snapshot and the job events. */
+  /** Background jobs running in this session, from the snapshot and the job events. */
   jobs: BackgroundJobInfo[];
   /** Tool calls waiting for approval, oldest first. */
   permissions: PermissionRequest[];
@@ -82,7 +83,8 @@ export type ChatAction =
     }
   | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
   | { type: "accept_turn"; message: ChatMessage }
-  | { type: "apply_event"; event: RunEvent }
+  /** `replay`: a snapshot's pending event, whose effects its totals already include. */
+  | { type: "apply_event"; event: RunEvent; replay?: boolean }
   | { type: "rollback" }
   | { type: "job_started"; job: BackgroundJobInfo }
   | { type: "job_finished"; toolUseId: string }
@@ -245,6 +247,17 @@ function withoutPending(pending: PendingInputs, ids: ReadonlySet<string>): Pendi
   };
 }
 
+/** Whether the tool call with this id is an `agent` call. */
+function isAgentCall(messages: ChatMessage[], toolUseId: string): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const block = messages[i]?.content.find(
+      (item) => item.type === "tool_use" && item.id === toolUseId,
+    );
+    if (block?.type === "tool_use") return block.name === "agent";
+  }
+  return false;
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "set_messages": {
@@ -264,7 +277,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
 
       for (const event of action.replayEvents ?? []) {
-        nextState = chatReducer(nextState, { type: "apply_event", event });
+        nextState = chatReducer(nextState, { type: "apply_event", event, replay: true });
       }
 
       return nextState;
@@ -394,6 +407,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...current,
           pending: true,
           output: `${current.output}${event.output}`,
+          metadata: event.metadata ?? current.metadata,
         };
       } else if (event.type === "tool_done") {
         const { tool_use_id: toolUseId, output: finalOutput } = event;
@@ -407,6 +421,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           isError,
         };
         rawMessages = appendToolResult(rawMessages, toolUseId, finalOutput, metadata, isError);
+        // A blocking subagent's spend counts in the session as soon as it
+        // returns. The server's totals include it from here on, so the next
+        // usage event's session totals replace these without counting it
+        // twice; a snapshot's totals already hold it, so a replay adds nothing.
+        if (!action.replay && metadata && isAgentCall(state.rawMessages, toolUseId)) {
+          return {
+            ...state,
+            rawMessages,
+            toolRuntimeById,
+            sessionUsage: addAgentSpend(state.sessionUsage, metadata),
+          };
+        }
       } else if (event.type === "error") {
         rawMessages = markTailAssistantStopped(
           rawMessages,
@@ -425,7 +451,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         return { ...state, rawMessages, toolRuntimeById, permissions: [] };
       } else if (event.type === "usage") {
         // The event carries the turn's cumulative values, so replace the
-        // previous snapshot instead of summing it again.
+        // previous snapshot instead of summing it again. A snapshot's session
+        // totals are newer than any event it replays, so a replay keeps them.
         const patch: Partial<MessageMeta> = {
           context_tokens: event.context_tokens ?? null,
           turn_usage: event.turn_usage ?? {},
@@ -439,7 +466,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state,
           rawMessages,
           toolRuntimeById,
-          sessionUsage: readUsageTotals(event.session_usage, event.session_cost),
+          sessionUsage: action.replay
+            ? state.sessionUsage
+            : readUsageTotals(event.session_usage, event.session_cost),
         };
       } else if (event.type === "compact") {
         rawMessages = [
@@ -456,12 +485,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           pending: withoutPending(state.pending, new Set(event.message.meta?.input_ids ?? [])),
         };
       } else if (event.type === "permission_request") {
-        const { request_id, tool_use_id, tool_name, preview } = event;
+        const { request_id, tool_use_id, tool_name, preview, agent } = event;
         if (state.permissions.some((request) => request.request_id === request_id)) return state;
-        return {
-          ...state,
-          permissions: [...state.permissions, { request_id, tool_use_id, tool_name, preview }],
-        };
+        const request: PermissionRequest = { request_id, tool_use_id, tool_name, preview };
+        if (agent) request.agent = agent;
+        return { ...state, permissions: [...state.permissions, request] };
       } else if (event.type === "permission_resolved") {
         return {
           ...state,
