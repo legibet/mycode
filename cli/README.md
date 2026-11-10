@@ -85,7 +85,7 @@ The CLI assembles the system prompt from instructions files and discovered skill
 
 ## Subagents
 
-The model can hand a self-contained task to a subagent with the `agent` tool. A subagent works in its own session and returns its final reply, either while the model waits or in the background. The model can set the subagent's reasoning effort for the task; by default it uses the session's. Its tool calls follow the session's permission settings; a subagent the model waits for asks for approval like the main agent, and a background one cannot ask, so calls that need approval are denied.
+The main agent can hand a self-contained task to a subagent. Subagents follow the session's permission settings, but one running in the background cannot ask for approval, so its calls that need approval are denied.
 
 The built-in `general` subagent has the same tools as the main agent. Add your own as markdown files in `~/.mycode/agents/` or in `.mycode/agents/` of the project. A file named `general.md` replaces the built-in.
 
@@ -127,9 +127,7 @@ While a reply runs, Enter steers it: the model sees the message at its next step
 
 A `bash` call with `background=true` keeps running after the reply ends (`docs/tools.md`). Its result is steered into the running reply, or wakes the idle session as a new turn, printed as a `Background finished` card with the command, its exit code, and the output tail. Esc, Ctrl+C, or denying a tool call holds wakes until the next message, which then carries the waiting results. `/new`, `/rewind`, a completed `/resume`, and exit stop the session's background commands and agents.
 
-A running subagent shows its latest steps under `Agent  <description>`. When it finishes, the line shows its tool calls, time, and cost, followed by the end of its reply. A background subagent reports back with an `Agent finished` card. A subagent's approval request names it in the review title, and denying it stops the reply.
-
-`/agents` lists the session's subagents, running ones first. Choosing one prints its transcript; a running one can also be stopped, and still reports back.
+`/agents` lists the session's subagents. Choosing one prints its transcript; a running one can also be stopped.
 
 `@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
 
