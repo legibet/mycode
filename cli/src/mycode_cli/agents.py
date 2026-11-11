@@ -46,10 +46,7 @@ class AgentDefinition:
 
 GENERAL_AGENT = AgentDefinition(
     name="general",
-    description=(
-        "General-purpose agent for multi-step tasks: research, code changes, running commands. "
-        "Has the same tools as you."
-    ),
+    description="General-purpose agent with the same tools as you.",
 )
 
 

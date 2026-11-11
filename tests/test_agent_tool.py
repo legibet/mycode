@@ -234,7 +234,7 @@ class TestBlocking:
         done = next(event for event in events if isinstance(event, ToolDoneEvent))
         assert done.is_error is False
         assert done.output == (
-            'Found it.\nDetails follow.\n\n[Agent child_a finished: 1 tool call, 0s. Continue it with resume="child_a".]'
+            'Found it.\nDetails follow.\n\n[Agent child_a finished. Continue it with resume="child_a".]'
         )
         assert done.metadata is not None
         assert isinstance(done.metadata.pop("duration_ms"), int)
@@ -372,9 +372,7 @@ class TestBlocking:
         await _finish_jobs(jobs)
 
         assert blocking.is_error is False
-        assert blocking.output.startswith(
-            'one\n\n[Agent child_a finished: 0 tool calls, 0s. Continue it with resume="child_a".]'
-        )
+        assert blocking.output.startswith('one\n\n[Agent child_a finished. Continue it with resume="child_a".]')
         assert blocking.metadata is not None
         assert blocking.metadata["session_id"] == "child_a"
         assert background.output == "Started agent in background: Find things\nAgent id: child_b"
@@ -527,9 +525,7 @@ class TestResume:
 
         result = await _call_tool(parent, "call_r", resume="child_a", prompt="second prompt", description="Second")
 
-        assert result.output.startswith(
-            'two\n\n[Agent child_a finished: 0 tool calls, 0s. Continue it with resume="child_a".]'
-        )
+        assert result.output.startswith('two\n\n[Agent child_a finished. Continue it with resume="child_a".]')
         assert result.metadata is not None
         assert result.metadata["session_id"] == "child_a"
         assert result.metadata["usage"] == _USAGE

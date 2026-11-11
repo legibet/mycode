@@ -60,7 +60,7 @@ While a blocking call runs, it streams one line per child step: `Read <path>`, `
 ```text
 <final reply>
 
-[Agent <id> finished: 12 tool calls, 45s. Continue it with resume="<id>".]
+[Agent <id> finished. Continue it with resume="<id>".]
 ```
 
 A failed, cancelled, or `max_turns`-limited turn returns the text the child produced, then `error: <reason>`, with `is_error=true`. A cancelled turn's reason tells the model how to continue:

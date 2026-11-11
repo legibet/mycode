@@ -154,7 +154,7 @@ describe("ToolCard agent", () => {
     render(
       agent({
         finalOutput:
-          'Config loads from **two** files.\n\n[Agent call-a finished: 12 tool calls, 45s. Continue it with resume="call-a".]',
+          'Config loads from **two** files.\n\n[Agent call-a finished. Continue it with resume="call-a".]',
         metadata: {
           agent: "general",
           session_id: "call-a",

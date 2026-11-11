@@ -54,14 +54,8 @@ _TOOL_SUMMARIES = {
 }
 
 _DESCRIPTION = (
-    "Start a subagent: a separate agent that works on a self-contained task in its own, initially empty "
-    "conversation. Use it for broad research or independent pieces of work whose details you do not need "
-    "in your own context. Calls issued together run in parallel.\n\n"
-    "A blocking call returns the agent's final reply. With background=true the call returns at once and "
-    "the agent's result is delivered to you when it finishes, even after your turn ends: do not poll, and "
-    "end your turn if nothing else is left to do. A blocking agent's permission requests are shown to the user "
-    "as usual, labelled with the agent; a background agent cannot ask, so its tool calls above the configured "
-    "permission level are denied."
+    "Start a subagent on a self-contained task. Use it for broad research or for independent pieces of work "
+    "whose details you do not need in your own context."
 )
 
 
@@ -78,13 +72,14 @@ class _AgentError(Exception):
             "The task. The agent starts with an empty conversation and does not see yours, "
             "so include every detail it needs."
         ),
-        "agent": "Name of the agent to run. Defaults to general.",
+        "agent": "Name of the agent to run.",
         "model": "Model to run the agent on.",
-        "effort": (
-            "Reasoning effort for the task. Defaults to yours; "
-            "on a model without this level, the next higher one it has is used."
+        "effort": "Reasoning effort for the task. Defaults to yours.",
+        "background": (
+            "Run the agent in the background and return at once. You receive its result when it finishes: "
+            "do not poll, and end your turn if nothing else is left to do. A background agent cannot ask "
+            "the user for approval, so its calls that need approval are denied."
         ),
-        "background": "Run the agent in the background and return at once; its result is delivered when it finishes.",
         "resume": (
             "Agent id from an earlier call: continue that agent with prompt instead of starting a new one. "
             "A running background agent receives prompt as a message."
@@ -198,9 +193,7 @@ async def _agent_tool(
     outcome = await _wait(turn, ctx.emit, ctx.deps.cwd)
     output = _reply(outcome, session_id)
     if outcome.status == "completed":
-        seconds = round(outcome.duration_ms / 1000)
-        calls = _tool_calls(outcome.tool_calls)
-        output += f'\n\n[Agent {session_id} finished: {calls}, {seconds}s. Continue it with resume="{session_id}".]'
+        output += f'\n\n[Agent {session_id} finished. Continue it with resume="{session_id}".]'
     return ToolExecutionResult(
         output=output,
         metadata={**metadata, **outcome.stats()},

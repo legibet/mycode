@@ -343,7 +343,7 @@ class TestTurnRenderer:
                 ToolOutputEvent(tool_use_id="1", output="Read config.py\n"),
                 ToolDoneEvent(
                     tool_use_id="1",
-                    output=f'{reply}\n\n[Agent 1 finished: 12 tool calls, 45s. Continue it with resume="1".]',
+                    output=f'{reply}\n\n[Agent 1 finished. Continue it with resume="1".]',
                     is_error=False,
                     metadata=_agent_metadata(tool_calls=12, duration_ms=45_210, cost=0.03),
                 ),
