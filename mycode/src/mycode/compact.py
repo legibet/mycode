@@ -1,6 +1,8 @@
-"""Context compaction: summarize past history when nearing the context window."""
+"""Context compaction rules. The agent runs the summary request; the functions here are pure."""
 
 from __future__ import annotations
+
+import json
 
 from mycode.messages import (
     CompactTrigger,
@@ -20,38 +22,41 @@ class NothingToCompactError(ValueError):
 
 
 COMPACT_SUMMARY_PROMPT = """\
-Summarize this conversation to create a continuation document. \
-This summary will replace the full conversation history, so it must \
-capture everything needed to continue the work seamlessly.
+Pause the work and reply with text only; do not call tools. Write a handoff summary of the conversation above. \
+The summary replaces the conversation, and the next model continues from it without asking the user to repeat anything.
 
-Include:
+Use exactly these sections. Write "(none)" for an empty section.
 
-1. **Task and Intent**: Describe the user's overall goal — what is being \
-built, fixed, or investigated, and why.
-2. **Decisions and Constraints**: List the decisions made, constraints \
-discovered, and approaches chosen or rejected, with the reasoning behind \
-each.
-3. **User Requests**: Every distinct request or instruction the user gave, \
-in chronological order. Preserve the user's original wording for ambiguous \
-or nuanced requests.
-4. **Files and Changes**: Enumerate every file read, modified, or created \
-— paths, what changed, and any code snippets the next turn will need to \
-reason about, quoted verbatim.
-5. **Errors and Fixes**: List errors encountered with the original message \
-verbatim, the cause if known, and the resolution — or that it remains open.
-6. **Current State**: What is verified working, what is known broken, what \
-is in progress.
-7. **Next Step**: The next step to take, with a direct quote from the most \
-recent conversation showing where the work left off.
+## Goal
+What the user is trying to accomplish, and why. List each goal when the conversation covers more than one.
+
+## Requirements
+Constraints, preferences and corrections the user stated. Quote the user's wording where it matters.
+
+## Decisions
+Decisions made and approaches rejected, each with its reason.
+
+## Progress
+What is done, what is in progress, and what is blocked.
+
+## Relevant Files
+Only the files the next model needs to open, each with the reason.
+
+## Next Steps
+What remains to do, in order, limited to what the user asked for. Write "(none)" when the latest request is finished.
+
+## Critical Context
+Other facts the next model needs, such as error messages, command output and exact values.
 
 Rules:
-- Be specific: reproduce file paths, function names, error messages, and \
-other identifiers verbatim — never paraphrase them.
-- Do not add suggestions or opinions — only summarize what happened.
-- Keep it concise but complete.\
+- Use terse bullets. Keep file paths, identifiers, commands and error strings exact.
+- Summarize what the user and the assistant said and did. The system prompt is sent again with every request, so leave it out.
+- Leave out what the next model can look up again, such as file contents.
+- If the conversation begins with an earlier summary, merge it: keep what is still true, drop what is stale.
+- Output only the summary.\
 """
 
-CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier portion of the conversation."
+CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the conversation up to the compaction. Any messages after it continue the conversation verbatim and may overlap the end of the summary."
 
 TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
 
@@ -59,21 +64,60 @@ CONTINUATION_FOOTER = 'Resume directly from where the work left off. Do not ackn
 
 COMPACT_ACK = "Acknowledged."
 
+# Token budget of the tail a compaction keeps verbatim after the summary.
+TAIL_TOKENS = 20_000
 
-def should_compact(
-    last_total_tokens: int | None,
-    context_window: int | None,
-    threshold: float,
-) -> bool:
-    """True when ``last_total_tokens`` ≥ ``context_window × threshold``.
+# Estimated tokens of one image or document block.
+ATTACHMENT_TOKENS = 1_000
 
-    The ``(1 - threshold)`` headroom is reserved for the compact LLM call
-    itself (see docs/sessions.md).
+
+def _latest_marker(messages: list[ConversationMessage]) -> int:
+    """Index of the latest compact marker, or -1."""
+
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i]["role"] == "compact":
+            return i
+    return -1
+
+
+def _estimate_tokens(message: ConversationMessage) -> int:
+    """Rough token count of one message: 4 characters per token, a flat count per attachment."""
+
+    chars = 0
+    attachments = 0
+    for block in message["content"]:
+        match block:
+            case {"type": "text" | "thinking"}:
+                chars += len(block["text"])
+            case {"type": "tool_use"}:
+                chars += len(block["name"]) + len(json.dumps(block["input"], ensure_ascii=False))
+            case {"type": "tool_result"}:
+                chars += len(block["output"])
+                attachments += sum(item["type"] == "image" for item in block.get("content", []))
+            case {"type": "image" | "document"}:
+                attachments += 1
+    return chars // 4 + attachments * ATTACHMENT_TOKENS
+
+
+def should_compact(messages: list[ConversationMessage], context_window: int, threshold: float) -> bool:
+    """True when the context of the next request reaches ``context_window × threshold``.
+
+    The context is the usage the last valid response reported plus an estimate
+    of the messages after it. False when no response after the latest marker
+    reported usage.
     """
 
-    if not last_total_tokens or not context_window or threshold <= 0:
+    if threshold <= 0:
         return False
-    return last_total_tokens >= context_window * threshold
+    for i in range(len(messages) - 1, _latest_marker(messages), -1):
+        message = messages[i]
+        meta = message.get("meta", {})
+        if message["role"] != "assistant" or meta.get("stop_reason") in ("error", "cancelled"):
+            continue
+        if total := (meta.get("usage") or {}).get("total_tokens"):
+            tokens = total + sum(_estimate_tokens(later) for later in messages[i + 1 :])
+            return tokens >= context_window * threshold
+    return False
 
 
 def has_compactable_history(messages: list[ConversationMessage]) -> bool:
@@ -87,8 +131,47 @@ def has_compactable_history(messages: list[ConversationMessage]) -> bool:
     return False
 
 
-def build_compact_event(
-    summary_text: str,
+def find_keep_from(messages: list[ConversationMessage], context_window: int) -> int | None:
+    """Return the index where the verbatim tail starts, or ``None`` when nothing follows the latest marker.
+
+    The tail is the newest step, whatever its size, plus the earlier messages
+    that fit the token budget. When every message after the marker fits, only
+    the newest step is kept, so the tail never repeats the whole history
+    beside its summary. The tail does not start with tool results, so every
+    tool result keeps its call.
+    """
+
+    # A tenth of the window keeps summary plus tail below the threshold on small windows.
+    budget = min(TAIL_TOKENS, context_window // 10)
+    newest = None
+    keep_from = None
+    tokens = 0
+    for i in range(len(messages) - 1, _latest_marker(messages), -1):
+        message = messages[i]
+        tokens += _estimate_tokens(message)
+        if tokens > budget and keep_from is not None:
+            return keep_from
+        if message["role"] == "assistant" or all(block["type"] != "tool_result" for block in message["content"]):
+            keep_from = i
+            if newest is None:
+                newest = i
+    # The scan reached the marker: everything fits, or the newest step is all there is.
+    return newest
+
+
+def summary_text(response: ConversationMessage) -> str:
+    """Return the summary text of a summary response; raise ``ValueError`` when it is unusable."""
+
+    if (stop_reason := response.get("meta", {}).get("stop_reason")) in ("length", "error"):
+        raise ValueError(f"compaction summary is incomplete (stop_reason={stop_reason})")
+    text = flatten_message_text(response)
+    if not text:
+        raise ValueError("compaction produced an empty summary")
+    return text
+
+
+def build_marker(
+    summary: str,
     *,
     trigger: CompactTrigger,
     provider: str,
@@ -96,6 +179,7 @@ def build_compact_event(
     context_window: int,
     usage: Usage | None = None,
     cost: Cost | None = None,
+    keep_from: int | None = None,
 ) -> ConversationMessage:
     meta: MessageMeta = {
         "trigger": trigger,
@@ -107,32 +191,29 @@ def build_compact_event(
         meta["usage"] = usage.copy()
     if cost is not None:
         meta["cost"] = cost.copy()
-    return build_message("compact", [text_block(summary_text)], meta=meta)
+    if keep_from is not None:
+        meta["keep_from"] = keep_from
+    return build_message("compact", [text_block(summary)], meta=meta)
 
 
-def apply_compact_replay(
-    messages: list[ConversationMessage],
-    *,
-    transcript_path: str | None = None,
-) -> list[ConversationMessage]:
-    """Replace pre-compact history with a summary continuation.
+def project(messages: list[ConversationMessage], transcript_path: str | None) -> list[ConversationMessage]:
+    """Return the provider-facing view of ``messages``.
 
-    Returns ``messages`` unchanged when no compact event is present.
+    The latest marker's summary becomes one user message, followed by the tail
+    the marker kept (``meta.keep_from`` up to the marker) and the messages
+    after the marker. Returns ``messages`` unchanged when there is no marker.
     """
 
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i]["role"] == "compact":
-            last_compact = i
-            break
-    else:
+    marker = _latest_marker(messages)
+    if marker < 0:
         return messages
 
-    tail = messages[last_compact + 1 :]
-    # No tail or assistant-led tail = mid-loop; resume directly. A user-led
-    # tail needs an "Acknowledged." assistant turn to keep role alternation.
-    continue_now = not tail or tail[0]["role"] == "assistant"
+    keep_from = messages[marker].get("meta", {}).get("keep_from", marker)
+    following = [*messages[keep_from:marker], *messages[marker + 1 :]]
+    # A user message after the summary needs an assistant turn before it, so roles alternate.
+    continue_now = not following or following[0]["role"] == "assistant"
 
-    parts = [CONTINUATION_HEADER, flatten_message_text(messages[last_compact])]
+    parts = [CONTINUATION_HEADER, flatten_message_text(messages[marker])]
     if transcript_path:
         parts.append(TRANSCRIPT_HINT.format(path=transcript_path))
     if continue_now:
@@ -141,5 +222,5 @@ def apply_compact_replay(
     projected = [build_message("user", [text_block("\n\n".join(parts))])]
     if not continue_now:
         projected.append(build_message("assistant", [text_block(COMPACT_ACK)]))
-    projected.extend(tail)
+    projected.extend(following)
     return projected

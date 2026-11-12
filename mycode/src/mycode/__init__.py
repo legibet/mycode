@@ -4,7 +4,7 @@ from importlib import metadata
 
 from mycode.agent import Agent, PersistCallback, RunResult
 from mycode.attachments import Attachment
-from mycode.compact import NothingToCompactError
+from mycode.compact import NothingToCompactError, has_compactable_history
 from mycode.events import (
     CancelledEvent,
     CompactEvent,
@@ -91,6 +91,7 @@ __all__ = [
     "document_block",
     "estimate_cost",
     "flatten_message_text",
+    "has_compactable_history",
     "image_block",
     "resolve_model_metadata",
     "text_block",

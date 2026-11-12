@@ -109,7 +109,7 @@ Interrupted turns may append partial assistant or tool-result records after the 
 
 Each matching `/<skill-name>` token prepends a text block with `meta.skill_snapshot=true` before the original user text. The snapshot contains the frontmatter-free `SKILL.md` body, source path, and base directory. The session persists it for provider replay. Session titles and TUI/Web history use the original text.
 
-Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker reaches providers only through the summary; its `location` lets the model re-read the skill file.
+Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker and outside its tail reaches providers only through the summary; its `location` lets the model re-read the skill file.
 
 A background job notification (`docs/tools.md`) is a text block with `meta.job`:
 
@@ -151,10 +151,10 @@ Adapter normalization (canonical ← raw; missing fields stay unknown unless not
 ### Compact event
 
 ```json
-{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"created_at": "...", "trigger": "auto", "provider": "...", "model": "...", "usage": {...}}}
+{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"created_at": "...", "trigger": "auto", "provider": "...", "model": "...", "usage": {...}, "keep_from": 12}}
 ```
 
-The marker stores the summary and its request usage. Automatic compaction also includes that request in the turn's cumulative usage. See "Context Compaction" below.
+The marker stores the summary and its request usage. Automatic compaction also includes that request in the turn's cumulative usage. `meta.keep_from` is the visible-history index of the first message kept verbatim after the summary. See "Context Compaction" below.
 
 `meta.trigger` is `auto` when the agent loop wrote the marker inside a turn and `manual` when an `acompact()` call wrote it. The two land in the same positions, so ownership reads the field rather than the position: an automatic marker belongs to its turn, a manual one stands alone. Markers written before the field existed have neither and stand alone.
 
@@ -173,43 +173,42 @@ When the SDK's `SessionStore.load_messages` runs:
 1. Read all JSONL lines into a raw list
 2. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
 
-`load_messages` returns the timeline minus rewound tails as visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and the provider adapter substitutes the summary into provider context lazily on each request in `prepare_messages` (via `compact.apply_compact_replay`). Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when messages are replayed, not by the loader.
+`load_messages` returns the timeline minus rewound tails as visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and the agent substitutes the summary into provider context on each request (see "Provider projection"). Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when messages are replayed, not by the loader.
 
 ## Context Compaction
 
-Checked after every completed assistant turn (with or without tools), always at
-a full `assistant`/`tool_result` boundary.
+The agent checks before every provider request of a turn, ahead of steer delivery. The rules are pure functions in `mycode/src/mycode/compact.py`.
 
-1. `should_compact()` — true when the latest assistant message's `usage.total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
-2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact marker with the summary text, `meta.trigger="auto"`, `meta.usage`, `meta.cost`, and `meta.context_window`
-4. Persist the compact marker and append it to `agent.messages`; original messages remain in JSONL and visible history
-5. Emit the `compact` stream event with `{"trigger": "auto"}`
+1. `should_compact()` — estimate the context the request will send: the `usage.total_tokens` of the last valid assistant message after the latest compact marker, plus about one token per four characters of the messages after it. Compact when the estimate ≥ `context_window × compact_threshold` (default `0.8`). When no message after the latest marker reported usage, there is no check.
+2. Send the summary request: the normal request plus one `user` message carrying the summary prompt. The requests are otherwise identical, so providers reuse the cached prefix. Only the text of the response is used.
+3. `find_keep_from()` — choose the tail: the newest step after the latest marker, whatever its size, plus the earlier messages that fit `min(20_000, context_window // 10)` estimated tokens. When every message after the marker fits, only the newest step is kept, so the tail never repeats the whole history beside its summary. The tail does not start with tool results.
+4. Persist a compact marker with the summary, `meta.trigger="auto"`, the request's usage and cost, and `meta.keep_from`. The original messages remain in JSONL and visible history.
+5. Emit the `compact` stream event with `{"trigger": "auto"}`, then a `usage` event.
 
-The headroom `(1 - compact_threshold) × context_window` is reserved for the
-compact call itself: that call sends the full current history as input plus a
-summary capped at `min(agent.max_tokens, 8192)`. Lowering
-`compact_threshold` just triggers earlier; raising it is bounded by how much
-headroom the compact call needs to fit.
+The summary covers the whole history, including the tail. The marker is written before the request it makes room for and before any steer delivered at that step.
 
-If the summary request fails or returns no text, the agent logs a warning and keeps the full history for a later attempt. Marker persistence failures propagate. User stop ends the turn with `cancelled` after cleanup; a marker commit already in progress finishes and is not rolled back.
+The headroom `(1 - compact_threshold) × context_window` is reserved for the summary request, which sends the current context plus the summary prompt. Lowering `compact_threshold` just triggers earlier; raising it is bounded by how much headroom the summary request needs to fit.
+
+When the summary request fails or returns an empty or incomplete summary, nothing is persisted. The agent logs a warning, continues the turn with the full history, and skips automatic compaction for the rest of that turn. Marker persistence failures propagate. User stop ends the turn with `cancelled` after cleanup; a marker commit already in progress finishes and is not rolled back.
 
 ### Manual compaction
 
-`Agent.acompact()` / `Agent.compact()` run steps 2–4 on demand, ignoring the threshold and recording `meta.trigger="manual"`. They return the committed marker. `has_compactable_history()` requires a non-empty `user`/`assistant` message after the latest compact marker; otherwise the call raises `NothingToCompactError` before any provider request. See docs/sdk.md for the public API and the CLI's `/compact` command.
+`Agent.acompact()` / `Agent.compact()` run steps 2 to 4 on demand, ignoring the threshold and recording `meta.trigger="manual"`. They return the committed marker. `has_compactable_history()` requires a non-empty `user`/`assistant` message after the latest compact marker; otherwise the call raises `NothingToCompactError` before any provider request. An empty or incomplete summary raises `ValueError`. See docs/sdk.md for the public API and the CLI's `/compact` command.
 
 ### Provider projection
 
-Visible state preserves pre-compact history and `compact` markers. Before each provider request, the provider adapter's `prepare_messages` (via `compact.apply_compact_replay`) rebuilds a provider-facing view:
+Visible state preserves pre-compact history and `compact` markers. When the agent builds a provider request, `compact.project()` rebuilds a provider-facing view from the latest `compact` marker:
 
-- finds the last `compact` marker in `self.messages`
-- replaces everything up to and including that marker with one synthetic `user` message that frames the continuation, embeds the summary text, and points at the original JSONL transcript
-- drops any earlier `compact` markers from the tail
-- shape of the synthetic head depends on the tail:
-  - tail empty or starts with `assistant` → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
-  - tail starts with `user` (a real follow-up prompt) → a short synthetic `assistant` ack (`Acknowledged.`) is inserted between the summary and the tail to preserve user/assistant alternation
+- one synthetic `user` message that frames the continuation, embeds the summary text, and points at the original JSONL transcript
+- the marker's tail, `messages[keep_from:marker]` (empty without `keep_from`)
+- the messages after the marker
 
-The visible list seen by UIs and used by rewind never contains these synthetic substitutes — they exist only in the provider-projected messages produced by `prepare_messages`.
+Everything else before the marker, including earlier markers and their tails, is left out. The message after the summary decides the head's shape:
+
+- nothing, or an `assistant` message → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
+- a `user` message → a short synthetic `assistant` ack (`Acknowledged.`) is inserted after the summary to preserve user/assistant alternation
+
+Provider adapters receive this view as `ProviderRequest.messages`. The visible list seen by UIs and used by rewind never contains these synthetic substitutes.
 
 ## Rewind
 
@@ -219,7 +218,7 @@ Triggered by `POST /api/chat` with `rewind_to`:
 2. Server calls `append_rewind(session_id, rewind_to)` — appends a rewind marker to JSONL
 3. Agent auto-resumes; `apply_rewind()` produces the truncated visible history
 
-Rewind indices refer to the visible history, which now includes pre-compact turns and inline `compact` markers. Rewinding to a real user message before a `compact` marker slices the marker away along with the rest of the tail — the next provider request will then see the full pre-compact history again. The marker itself is never a valid rewind target.
+Rewind indices refer to the visible history, which now includes pre-compact turns and inline `compact` markers. Rewinding to a real user message before a `compact` marker slices the marker away along with the rest of the tail — the next provider request will then see the full pre-compact history again. The marker itself is never a valid rewind target. A marker's `keep_from` points before the marker, so a rewind either removes the marker or leaves its tail intact.
 
 ## tool-output/ Logs
 

@@ -163,6 +163,84 @@ async def test_steer_after_automatic_compaction_lands_after_the_marker(tmp_path:
     assert _texts(adapter.requests[2][-1]) == ["keep going"]
 
 
+async def test_steer_sent_during_the_summary_request_reaches_the_next_request(tmp_path: Path) -> None:
+    def steer_during_summary(request_number: int) -> None:
+        if request_number == 2:
+            assert agent.steer("use sqlite") is True
+
+    adapter = _Adapter(
+        [_ping_turn(usage={"total_tokens": 80_000}), _text_turn("summary"), _text_turn("done")],
+        on_request=steer_during_summary,
+    )
+    agent = _new_agent(tmp_path, context_window=100_000)
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for _ in agent.achat("build it"):
+            pass
+
+    assert len(adapter.requests) == 3
+    assert [message["role"] for message in agent.messages] == [
+        "user",
+        "assistant",
+        "user",
+        "compact",
+        "user",
+        "assistant",
+    ]
+    assert _texts(adapter.requests[2][-1]) == ["use sqlite"]
+
+
+async def test_steer_accepted_before_the_first_request_waits_for_its_response(tmp_path: Path) -> None:
+    adapter = _Adapter([_text_turn("first"), _text_turn("second")])
+    agent = _new_agent(tmp_path)
+
+    async def on_persist(message: ConversationMessage) -> None:
+        if not agent.messages:
+            assert agent.steer("one more thing") is True
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+
+    # The first request carries the user's message alone; the steer opens the next segment.
+    assert [message["role"] for message in adapter.requests[0]] == ["user"]
+    assert [event.type for event in events] == ["text", "usage", "usage", "user_message", "text", "usage"]
+    assert [message["role"] for message in agent.messages] == ["user", "assistant", "user", "assistant"]
+
+
+async def test_steer_pending_at_max_turns_is_committed_before_the_error(tmp_path: Path) -> None:
+    adapter = _Adapter([_ping_turn()])
+    agent = _new_agent(tmp_path, max_turns=1)
+
+    events: list[Event] = []
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for event in agent.achat("build it"):
+            events.append(event)
+            if event.type == "tool_start":
+                assert agent.steer("use sqlite") is True
+
+    assert [event.type for event in events][-2:] == ["user_message", "error"]
+    assert _texts(agent.messages[-1]) == ["use sqlite"]
+    assert agent.pending_steers() == []
+
+
+async def test_stop_during_steer_commit_at_max_turns_ends_cancelled(tmp_path: Path) -> None:
+    adapter = _Adapter([_ping_turn()])
+    agent = _new_agent(tmp_path, max_turns=1)
+
+    async def on_persist(message: ConversationMessage) -> None:
+        if message.get("meta", {}).get("steer"):
+            agent.cancel()
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events: list[Event] = []
+        async for event in agent.achat("build it", on_persist=on_persist):
+            events.append(event)
+            if event.type == "tool_start":
+                assert agent.steer("use sqlite") is True
+
+    assert events[-1] == CancelledEvent()
+
+
 async def test_pending_steers_merge_into_one_message(tmp_path: Path) -> None:
     adapter = _Adapter([_ping_turn(), _text_turn("ok")])
     agent = _new_agent(tmp_path)

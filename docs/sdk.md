@@ -266,15 +266,15 @@ Once a commit starts, the callback and SDK append finish before cancellation is 
 
 ### Compaction
 
-When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.usage.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, commits a `compact` marker carrying `meta.trigger="auto"`, and emits a `compact` event with the same trigger. The pre-compact messages stay in place; only the next provider request sees the summary substitution. A boundary can be reached after the turn's final answer, so an automatic marker may be the turn's last record.
+Before every provider request the agent estimates the context that request will send, from the last reported `meta.usage.total_tokens` and the messages added since. When the estimate reaches `context_window * compact_threshold` (default `0.8`; pass `0` to disable), the agent compacts first. It sends the normal request plus one user message that asks for a summary, so providers can reuse the cached prefix. It then commits a `compact` marker carrying `meta.trigger="auto"` and emits a `compact` event with the same trigger and a `usage` event. The pre-compact messages stay in place; provider requests see the summary followed by a short recent tail kept verbatim. The rules are in `docs/sessions.md`, Context Compaction.
 
-Automatic compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. A failure to persist the marker propagates to the caller. A user-initiated cancel inside the summary call ends the turn with `cancelled` after cleanup.
+Automatic compaction is best-effort: when the summary request fails or returns an empty or incomplete summary, the agent logs a warning, continues the turn with the full history, and skips automatic compaction for the rest of that turn. A failure to persist the marker propagates to the caller. A user-initiated cancel inside the summary call ends the turn with `cancelled` after cleanup.
 
 #### Manual compaction
 
 `await agent.acompact()` (and the synchronous `agent.compact()` wrapper) compacts on demand, independent of `compact_threshold`. Both run the same summary request and persistence path as automatic compaction and **return the persisted `compact` marker** (a `ConversationMessage`, carrying `meta.trigger="manual"`); they append no user or assistant turn. Pass `on_persist=coro` to stage the marker alongside your own store, exactly as `achat` does.
 
-Manual compaction requires new context after the latest marker. Otherwise it raises `NothingToCompactError` before any provider request. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. If cancellation arrives after the marker commit has begun, that commit finishes before cancellation is raised; a committed marker is never rolled back. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
+Manual compaction requires new context after the latest marker. Otherwise it raises `NothingToCompactError` before any provider request; `has_compactable_history(messages)` checks the same condition without an agent. An empty or incomplete summary raises `ValueError` and writes no marker. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. If cancellation arrives after the marker commit has begun, that commit finishes before cancellation is raised; a committed marker is never rolled back. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
 
 ```python
 agent.run("Review the project")

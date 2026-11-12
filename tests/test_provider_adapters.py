@@ -13,8 +13,7 @@ from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
 from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningItem
 
-from mycode import Agent, text_block
-from mycode.compact import build_compact_event
+from mycode import Agent
 from mycode.messages import ConversationMessage
 from mycode.providers import (
     AlibabaAdapter,
@@ -1596,33 +1595,6 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
             ],
         },
     ]
-
-
-def test_provider_prepare_messages_applies_compact_before_appending_messages() -> None:
-    adapter = OpenAIChatAdapter()
-    request = request_obj(
-        transcript_path="/sessions/s1/messages.jsonl",
-        append_messages=[{"role": "user", "content": [{"type": "text", "text": "summarize now"}]}],
-        messages=[
-            {"role": "user", "content": [{"type": "text", "text": "old prompt"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
-            build_compact_event(
-                "latest summary", trigger="auto", provider="openai", model="gpt-5.4", context_window=128_000
-            ),
-            {"role": "assistant", "content": [{"type": "text", "text": "tail answer"}]},
-        ],
-    )
-
-    prepared = adapter.prepare_messages(request)
-
-    assert [message["role"] for message in prepared] == ["user", "assistant", "user"]
-    summary = prepared[0]["content"][0]
-    assert summary["type"] == "text"
-    assert "latest summary" in summary["text"]
-    assert "/sessions/s1/messages.jsonl" in summary["text"]
-    assert "old prompt" not in summary["text"]
-    assert prepared[1]["content"] == [text_block("tail answer")]
-    assert prepared[2]["content"] == [text_block("summarize now")]
 
 
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:

@@ -1,7 +1,7 @@
 """Shared provider adapter interfaces.
 
 Each adapter implements `stream_turn()` and reuses `prepare_messages()` to
-project the canonical session transcript into a provider-safe replay history
+turn the request's canonical messages into a provider-safe replay history
 before sending a request upstream.
 """
 
@@ -12,13 +12,12 @@ import json
 import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx2
 
 from mycode.attachments import unsupported_attachment_block
-from mycode.compact import apply_compact_replay
 from mycode.messages import (
     BlockMeta,
     ContentBlock,
@@ -136,8 +135,6 @@ class ProviderRequest:
     legacy_max_tokens: bool = False
     supports_image_input: bool = True
     supports_pdf_input: bool = True
-    transcript_path: str | None = None
-    append_messages: list[ConversationMessage] = field(default_factory=list)
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
 
 
@@ -252,16 +249,10 @@ class ProviderAdapter(ABC):
         """Stream exactly one assistant turn."""
 
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
-        """Project visible history into provider-safe replay messages."""
+        """Turn the request's canonical messages into provider-safe replay messages."""
 
-        replay_messages = apply_compact_replay(
-            request.messages,
-            transcript_path=request.transcript_path,
-        )
-        if request.append_messages:
-            replay_messages = [*replay_messages, *request.append_messages]
         repaired_messages = repair_messages_for_replay(
-            replay_messages,
+            request.messages,
             supports_image_input=request.supports_image_input,
             supports_pdf_input=request.supports_pdf_input,
         )

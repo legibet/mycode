@@ -3,27 +3,79 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Unpack
 from unittest.mock import patch
 
 import pytest
 
-from mycode import CompactEvent, UsageEvent
+from mycode import CompactEvent, UsageEvent, tool
 from mycode.agent import Agent
-from mycode.compact import (
-    COMPACT_SUMMARY_PROMPT,
-    NothingToCompactError,
-    apply_compact_replay,
-    build_compact_event,
-)
-from mycode.messages import ConversationMessage, MessageMeta, text_block
-from mycode.providers.base import MessageDone, ProviderStreamEvent
+from mycode.compact import NothingToCompactError, build_marker, find_keep_from, project
+from mycode.messages import ConversationMessage, MessageMeta, flatten_message_text, text_block
+from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent
 from mycode.session import SessionStore
+
+
+@tool
+def ping() -> str:
+    """Answer pong."""
+
+    return "pong"
+
+
+@tool
+def dump(size: int) -> str:
+    """Return ``size`` characters."""
+
+    return "x" * size
+
+
+class _Adapter:
+    """Answers each request with the next scripted response and records the requests."""
+
+    def __init__(self, *responses: ConversationMessage | Exception):
+        self.responses = list(responses)
+        self.requests: list[ProviderRequest] = []
+
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        self.requests.append(replace(request, messages=list(request.messages)))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        yield MessageDone(copy.deepcopy(response))
+
+
+def _reply(text: str, **meta: Unpack[MessageMeta]) -> ConversationMessage:
+    return {"role": "assistant", "content": [text_block(text)], "meta": meta}
+
+
+def _call(call_id: str, size: int, **meta: Unpack[MessageMeta]) -> ConversationMessage:
+    """A response calling ``dump`` for ``size`` characters of tool output."""
+
+    return {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": call_id, "name": "dump", "input": {"size": size}}],
+        "meta": {"stop_reason": "tool_use", **meta},
+    }
+
+
+def _user(text: str) -> ConversationMessage:
+    return {"role": "user", "content": [text_block(text)]}
+
+
+def _marker(summary: str = "summary", **overrides: Any) -> ConversationMessage:
+    return build_marker(summary, trigger="auto", provider="p", model="m", context_window=100, **overrides)
+
+
+def _roles(messages: list[ConversationMessage]) -> list[str]:
+    return [message["role"] for message in messages]
 
 
 @pytest.fixture
@@ -38,12 +90,12 @@ def make_agent(tmp_path: Path) -> Agent:
 @pytest.mark.asyncio
 async def test_session_load_keeps_compact_markers_inline_and_append_only(store: SessionStore) -> None:
     raw_messages: list[ConversationMessage] = [
-        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("old summary", trigger="auto", provider="p", model="m", context_window=100),
-        {"role": "user", "content": [{"type": "text", "text": "next"}]},
-        build_compact_event("new summary", trigger="auto", provider="p", model="m", context_window=100),
-        {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
+        _user("hello"),
+        _reply("hi"),
+        _marker("old summary"),
+        _user("next"),
+        _marker("new summary"),
+        _reply("latest reply"),
     ]
     for message in raw_messages:
         await store.append_message("s1", message)
@@ -51,60 +103,39 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     loaded = await store.load_messages("s1")
     raw_lines = store.messages_path("s1").read_text(encoding="utf-8").strip().splitlines()
 
-    assert [message.get("role") for message in loaded] == [
-        "user",
-        "assistant",
-        "compact",
-        "user",
-        "compact",
-        "assistant",
-    ]
-    assert [json.loads(line)["role"] for line in raw_lines] == [
-        "user",
-        "assistant",
-        "compact",
-        "user",
-        "compact",
-        "assistant",
-    ]
+    expected = ["user", "assistant", "compact", "user", "compact", "assistant"]
+    assert _roles(loaded) == expected
+    assert [json.loads(line)["role"] for line in raw_lines] == expected
+
+
+# ---------------------------------------------------------------------
+# Projection
+# ---------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("tail", "expected_roles", "expected_texts", "continues_directly"),
+    ("after", "expected_roles", "expected_texts", "continues_directly"),
     [
-        pytest.param([], ["user"], [], True, id="empty-tail"),
+        pytest.param([], ["user"], [], True, id="nothing-after"),
+        pytest.param([_reply("next")], ["user", "assistant"], ["next"], True, id="assistant-after"),
         pytest.param(
-            [{"role": "assistant", "content": [{"type": "text", "text": "tail"}]}],
-            ["user", "assistant"],
-            ["tail"],
-            True,
-            id="assistant-tail",
-        ),
-        pytest.param(
-            [{"role": "user", "content": [{"type": "text", "text": "follow-up"}]}],
+            [_user("follow-up")],
             ["user", "assistant", "user"],
             ["Acknowledged.", "follow-up"],
             False,
-            id="user-tail",
+            id="user-after",
         ),
     ],
 )
-def test_compact_replay_preserves_role_order_after_summary(
-    tail: list[ConversationMessage],
+def test_projection_keeps_role_order_after_summary(
+    after: list[ConversationMessage],
     expected_roles: list[str],
     expected_texts: list[str],
     continues_directly: bool,
 ) -> None:
-    messages: list[ConversationMessage] = [
-        {"role": "user", "content": [{"type": "text", "text": "early"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
-        build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
-        *tail,
-    ]
+    projected = project([_user("early"), _reply("ok"), _marker(), *after], None)
 
-    projected = apply_compact_replay(messages)
-
-    assert [message["role"] for message in projected] == expected_roles
+    assert _roles(projected) == expected_roles
     summary = projected[0]["content"][0]
     assert summary["type"] == "text"
     assert "summary" in summary["text"]
@@ -112,95 +143,101 @@ def test_compact_replay_preserves_role_order_after_summary(
     assert [message["content"] for message in projected[1:]] == [[text_block(text)] for text in expected_texts]
 
 
-def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
-    messages: list[ConversationMessage] = [
-        {"role": "user", "content": [{"type": "text", "text": "very old"}]},
-        build_compact_event("EARLIER_SUMMARY", trigger="auto", provider="p", model="m", context_window=100),
-        {"role": "assistant", "content": [{"type": "text", "text": "mid"}]},
-        build_compact_event("LATEST_SUMMARY", trigger="auto", provider="p", model="m", context_window=100),
-        {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
-    ]
+def test_projection_uses_latest_summary_and_transcript_hint() -> None:
+    messages = [_user("very old"), _marker("EARLIER_SUMMARY"), _reply("mid"), _marker("LATEST_SUMMARY"), _reply("next")]
 
-    projected = apply_compact_replay(messages, transcript_path="/sessions/s1/messages.jsonl")
+    projected = project(messages, "/sessions/s1/messages.jsonl")
 
-    assert [m["role"] for m in projected] == ["user", "assistant"]
+    assert _roles(projected) == ["user", "assistant"]
     summary = projected[0]["content"][0]
     assert summary["type"] == "text"
-    summary_user_text = summary["text"]
-    assert "LATEST_SUMMARY" in summary_user_text
-    assert "EARLIER_SUMMARY" not in summary_user_text
-    assert "/sessions/s1/messages.jsonl" in summary_user_text
+    assert "LATEST_SUMMARY" in summary["text"]
+    assert "EARLIER_SUMMARY" not in summary["text"]
+    assert "/sessions/s1/messages.jsonl" in summary["text"]
 
 
-class _RecordingAdapter:
-    """Streams one canned summary per turn and records every request."""
+def test_projection_keeps_the_tail_of_the_latest_marker_only() -> None:
+    first = [_user("first"), _reply("one"), _user("second"), _reply("two"), _marker("S1", keep_from=2)]
+    second = [*first, _user("third"), _reply("three"), _marker("S2", keep_from=5), _user("fourth")]
 
-    def __init__(self, summaries: list[str]):
-        self.requests: list[Any] = []
-        self._summaries = list(summaries)
+    def texts(projected: list[ConversationMessage]) -> list[str]:
+        return [block["text"] for message in projected[1:] for block in message["content"] if block["type"] == "text"]
 
-    async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        self.requests.append(request)
-        text = self._summaries.pop(0)
-        yield MessageDone(
-            {"role": "assistant", "content": [{"type": "text", "text": text}]},
-        )
+    projected = project(first, None)
+    assert "S1" in flatten_message_text(projected[0])
+    assert texts(projected) == ["Acknowledged.", "second", "two"]
 
+    projected = project(second, None)
+    assert "S2" in flatten_message_text(projected[0])
+    assert texts(projected) == ["Acknowledged.", "third", "three", "fourth"]
 
-class _UsageAdapter:
-    def __init__(self, total_tokens: int):
-        self.total_tokens = total_tokens
-        self.requests: list[Any] = []
-
-    async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        self.requests.append(request)
-        message: ConversationMessage = {
-            "role": "assistant",
-            "content": [{"type": "text", "text": "reply" if len(self.requests) == 1 else "summary"}],
-        }
-        if len(self.requests) == 1:
-            message["meta"] = {"usage": {"total_tokens": self.total_tokens}}
-        yield MessageDone(message)
+    # A tail that starts at an assistant message follows the summary directly.
+    projected = project([*first[:4], _marker("S1", keep_from=3)], None)
+    assert "Resume directly" in flatten_message_text(projected[0])
+    assert texts(projected) == ["two"]
 
 
-@pytest.mark.asyncio
+def _tool_round(call_id: str, output_chars: int, text: str = "") -> list[ConversationMessage]:
+    call: ConversationMessage = {
+        "role": "assistant",
+        "content": [text_block(text), {"type": "tool_use", "id": call_id, "name": "dump", "input": {}}],
+    }
+    result: ConversationMessage = {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": call_id, "output": "x" * output_chars, "is_error": False}],
+    }
+    return [call, result]
+
+
 @pytest.mark.parametrize(
-    ("total_tokens", "compact_threshold", "expected_compaction"),
+    ("context_window", "expected"),
     [
-        pytest.param(80_000, None, True, id="default-threshold-reached"),
-        pytest.param(79_999, None, False, id="below-default-threshold"),
-        pytest.param(99_999, 0, False, id="disabled"),
+        # Budget 20_000: everything after the latest marker fits, so only the newest step stays.
+        pytest.param(200_000, 6, id="everything-fits"),
+        # Budget 11_500: both tool rounds fit, the prompt before them does not.
+        pytest.param(115_000, 4, id="earlier-step-fits"),
+        # Budget 10_000: the older tool result still fits but cannot start the
+        # tail, and its call does not fit, so the tail starts at the newer call.
+        pytest.param(100_000, 6, id="never-starts-at-tool-result"),
+        # Budget 3_000: the latest tool result alone is too large, and stays with its call.
+        pytest.param(30_000, 6, id="newest-step-over-budget"),
     ],
 )
-async def test_achat_automatically_compacts_at_the_configured_threshold(
-    tmp_path: Path,
-    total_tokens: int,
-    compact_threshold: float | None,
-    expected_compaction: bool,
-) -> None:
-    agent = Agent(
-        model="m",
-        provider="anthropic",
-        context_window=100_000,
-        compact_threshold=compact_threshold,
-    )
-    adapter = _UsageAdapter(total_tokens)
+def test_tail_respects_the_budget_and_keeps_tool_results_with_their_calls(context_window: int, expected: int) -> None:
+    messages = [
+        _user("old " * 1_000),
+        _reply("old answer"),
+        _marker(),
+        _user("p" * 4_000),  # ~1_000 tokens
+        *_tool_round("c1", 20_000, text="a" * 8_000),  # ~2_000 + 5_000 tokens
+        *_tool_round("c2", 16_000),  # ~0 + 4_000 tokens
+    ]
 
-    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("hello")]
+    assert find_keep_from(messages, context_window) == expected
 
-    assert ("compact" in [event.type for event in events]) is expected_compaction
-    assert len(adapter.requests) == (2 if expected_compaction else 1)
-    assert (agent.messages[-1]["role"] == "compact") is expected_compaction
+
+def test_tail_keeps_an_unanswered_prompt_larger_than_the_budget() -> None:
+    messages = [_user("old"), _reply("old answer"), _user("p" * 100_000)]
+
+    assert find_keep_from(messages, 100_000) == 2
+
+
+# ---------------------------------------------------------------------
+# Summary request
+# ---------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_path: Path) -> None:
+async def test_acompact_sends_the_normal_request_plus_one_message_and_persists_marker(tmp_path: Path) -> None:
     agent = Agent(
         model="m",
         provider="anthropic",
         session_dir=tmp_path,
         compact_threshold=0,
+        system="SYSTEM",
+        reasoning_effort="high",
+        max_tokens=32_000,
+        tools=[ping],
     )
     persisted: list[ConversationMessage] = []
     store_lines_at_callback: list[int] = []
@@ -211,23 +248,21 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
         text = messages_path.read_text(encoding="utf-8") if messages_path.exists() else ""
         store_lines_at_callback.append(len(text.strip().splitlines()) if text.strip() else 0)
 
-    # First canned text answers the chat turn; the second one is the summary.
-    adapter = _RecordingAdapter(["chat reply", "THE_SUMMARY"])
+    adapter = _Adapter(_reply("chat reply"), _reply("THE_SUMMARY"))
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         async for _ in agent.achat("hello there"):
             pass
         marker = await agent.acompact(on_persist=on_persist)
 
-    assert marker["role"] == "compact"
-    summary = marker["content"][0]
-    assert summary["type"] == "text"
-    assert summary["text"] == "THE_SUMMARY"
+    assert marker["content"] == [text_block("THE_SUMMARY")]
 
-    # The summary request carries no tools and no reasoning effort.
-    compact_request = adapter.requests[1]
-    assert compact_request.tools == []
-    assert compact_request.reasoning_effort is None
-    assert compact_request.append_messages[-1]["content"][0]["text"] == COMPACT_SUMMARY_PROMPT
+    # Same system, tools, effort and max_tokens as a normal request, so the
+    # provider can reuse the cached prefix; only one user message is added.
+    chat_request, summary_request = adapter.requests
+    assert replace(summary_request, messages=[]) == replace(chat_request, messages=[])
+    assert summary_request.messages[:-1] == agent.messages[:2]
+    assert summary_request.messages[-1]["role"] == "user"
+    assert [block["type"] for block in summary_request.messages[-1]["content"]] == ["text"]
 
     # on_persist ran before the SDK store write.
     assert persisted == [marker]
@@ -242,10 +277,9 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
 @pytest.mark.asyncio
 async def test_acompact_without_new_context_raises_before_provider_request(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
-    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
-    agent.messages.append(build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100))
+    agent.messages.extend([_user("hi"), _marker()])
 
-    adapter = _RecordingAdapter([])
+    adapter = _Adapter()
     with patch("mycode.agent.get_provider_adapter", return_value=adapter), pytest.raises(NothingToCompactError):
         await agent.acompact()
 
@@ -253,9 +287,35 @@ async def test_acompact_without_new_context_raises_before_provider_request(tmp_p
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(_reply("half a summ", stop_reason="length"), id="truncated"),
+        pytest.param(_reply("half a summ", stop_reason="error"), id="error-response"),
+        pytest.param(_call("c1", 10), id="tool-call-only"),
+    ],
+)
+async def test_acompact_rejects_unusable_summary_and_persists_nothing(
+    tmp_path: Path, response: ConversationMessage
+) -> None:
+    agent = Agent(model="m", provider="anthropic", session_dir=tmp_path, tools=[dump])
+    agent.messages.append(_user("hi"))
+
+    with (
+        patch("mycode.agent.get_provider_adapter", return_value=_Adapter(response)),
+        pytest.raises(ValueError, match="summary"),
+    ):
+        await agent.acompact()
+
+    # No marker, and the summary response's tool call was not executed.
+    assert _roles(agent.messages) == ["user"]
+    assert not SessionStore(data_dir=tmp_path).session_exists(agent.session_id)
+
+
+@pytest.mark.asyncio
 async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
-    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+    agent.messages.append(_user("hi"))
     messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
 
     class _HangThenSummary:
@@ -269,9 +329,7 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
                 # A late summary must not be committed after cancellation.
                 with suppress(asyncio.CancelledError):
                     await asyncio.Event().wait()
-            yield MessageDone(
-                {"role": "assistant", "content": [{"type": "text", "text": "SUMMARY"}]},
-            )
+            yield MessageDone(_reply("SUMMARY"))
 
     adapter = _HangThenSummary()
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
@@ -292,154 +350,220 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
         async with asyncio.timeout(2):
             marker = await agent.acompact()
 
-    assert marker["role"] == "compact"
-    summary = marker["content"][0]
-    assert summary["type"] == "text"
-    assert summary["text"] == "SUMMARY"
+    assert marker["content"] == [text_block("SUMMARY")]
 
 
-class _UsageDetailAdapter:
-    """First request nears the window; the summary request reports its own usage."""
+# ---------------------------------------------------------------------
+# Automatic compaction
+# ---------------------------------------------------------------------
 
-    def __init__(self) -> None:
-        self.requests = 0
 
-    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        self.requests += 1
-        if self.requests == 1:
-            meta: MessageMeta = {
-                "created_at": "2020-01-01T00:00:01+00:00",
-                "usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000},
-                "cost": {"total": 0.01},
-            }
-            text = "reply"
-        else:
-            meta: MessageMeta = {
-                "usage": {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500},
-                "cost": {"total": 0.005},
-            }
-            text = "summary"
-        yield MessageDone(
-            {"role": "assistant", "content": [{"type": "text", "text": text}], "meta": meta},
-        )
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("output_size", "compact_threshold", "expected_compaction"),
+    [
+        # 79_000 reported + 4_000 chars / 4 of tool output reaches 80% of 100_000.
+        pytest.param(4_000, None, True, id="tool-output-crosses-threshold"),
+        pytest.param(3_000, None, False, id="below-threshold"),
+        pytest.param(4_000, 0, False, id="disabled"),
+    ],
+)
+async def test_trigger_counts_messages_added_after_the_last_usage(
+    output_size: int,
+    compact_threshold: float | None,
+    expected_compaction: bool,
+) -> None:
+    agent = Agent(
+        model="m",
+        provider="anthropic",
+        context_window=100_000,
+        compact_threshold=compact_threshold,
+        tools=[dump],
+    )
+    summary = [_reply("SUMMARY")] if expected_compaction else []
+    adapter = _Adapter(_call("c1", output_size, usage={"total_tokens": 79_000}), *summary, _reply("done"))
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("hello")]
+
+    assert ("compact" in [event.type for event in events]) is expected_compaction
+    # The marker lands before the request that would have crossed the threshold.
+    compact = ["compact"] if expected_compaction else []
+    assert _roles(agent.messages) == ["user", "assistant", "user", *compact, "assistant"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("history", "expected_compaction"),
+    [
+        pytest.param([_user("old"), _reply("old answer", usage={"total_tokens": 95_000})], True, id="resumed"),
+        pytest.param(
+            [
+                _user("old"),
+                _reply("old answer", usage={"total_tokens": 95_000}),
+                _marker(usage={"total_tokens": 95_000}),
+            ],
+            False,
+            id="no-usage-after-marker",
+        ),
+    ],
+)
+async def test_check_runs_before_the_first_request_only_with_usage_after_the_latest_marker(
+    history: list[ConversationMessage], expected_compaction: bool
+) -> None:
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, messages=history)
+    summary = [_reply("SUMMARY")] if expected_compaction else []
+    adapter = _Adapter(*summary, _reply("done"))
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("hello")]
+
+    assert ("compact" in [event.type for event in events]) is expected_compaction
+    assert _roles(agent.messages[len(history) :]) == [
+        "user",
+        *(["compact"] if expected_compaction else []),
+        "assistant",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
-    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path)
-    adapter = _UsageDetailAdapter()
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path, tools=[ping])
+    adapter = _Adapter(
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "c1", "name": "ping", "input": {}}],
+            "meta": {
+                "stop_reason": "tool_use",
+                "created_at": "2020-01-01T00:00:01+00:00",
+                "usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000},
+                "cost": {"total": 0.01},
+            },
+        },
+        _reply(
+            "summary",
+            usage={"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500},
+            cost={"total": 0.005},
+        ),
+        _reply("done"),
+    )
     # Separate the response time from the compact commit without sleeping.
     started_at = "2020-01-01T00:00:00+00:00"
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [
-            event
-            async for event in agent.achat(
-                {"role": "user", "content": [{"type": "text", "text": "hello"}], "meta": {"created_at": started_at}}
-            )
-        ]
+        events = [event async for event in agent.achat({**_user("hello"), "meta": {"created_at": started_at}})]
 
-    assert [event.type for event in events] == ["usage", "compact", "usage"]
+    assert [event.type for event in events] == ["usage", "tool_start", "tool_done", "compact", "usage", "usage"]
     assert isinstance(events[0], UsageEvent)
     assert events[0].turn_duration_ms == 1000
-    assert isinstance(events[1], CompactEvent)
-    assert events[1].trigger == "auto"
-    final_usage = events[-1]
-    assert isinstance(final_usage, UsageEvent)
+    assert events[3] == CompactEvent(trigger="auto")
+    compact_usage = events[4]
+    assert isinstance(compact_usage, UsageEvent)
     # The summary call is billed into the turn, but the context metric keeps
     # the last normal request's total — the summary total is not context size.
-    assert final_usage.context_tokens == 80_000
-    assert final_usage.turn_usage["total_tokens"] == 160_500
-    assert final_usage.turn_usage["input_tokens"] == 159_000
-    assert final_usage.turn_usage["output_tokens"] == 1_500
-    assert final_usage.turn_cost == pytest.approx({"total": 0.015})
+    assert compact_usage.context_tokens == 80_000
+    assert compact_usage.turn_usage == {"total_tokens": 160_500, "input_tokens": 159_000, "output_tokens": 1_500}
+    assert compact_usage.turn_cost == pytest.approx({"total": 0.015})
 
     records = await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id)
     assert records == agent.messages
-    marker = records[-1]
+    marker = records[3]
     assert marker["role"] == "compact"
     assert marker["meta"]["trigger"] == "auto"
     elapsed = datetime.fromisoformat(marker["meta"]["created_at"]) - datetime.fromisoformat(started_at)
-    assert final_usage.turn_duration_ms == int(elapsed.total_seconds() * 1000)
+    assert compact_usage.turn_duration_ms == int(elapsed.total_seconds() * 1000)
     assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
     assert marker["meta"]["cost"] == {"total": 0.005}
 
 
-class _FailingSummaryAdapter:
-    """First request nears the window; the summary request fails."""
+@pytest.mark.asyncio
+async def test_automatic_and_manual_compaction_keep_the_tail() -> None:
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, tools=[dump])
+    adapter = _Adapter(
+        _call("c1", 60_000, usage={"total_tokens": 10_000}),
+        _call("c2", 4_000, usage={"total_tokens": 79_000}),
+        _reply("SUMMARY"),
+        _reply("done"),
+    )
 
-    def __init__(self) -> None:
-        self.requests = 0
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for _ in agent.achat("hello"):
+            pass
 
-    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        self.requests += 1
-        if self.requests > 1:
-            raise ValueError("summary failed")
-        meta: MessageMeta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
-        yield MessageDone(
-            {"role": "assistant", "content": [{"type": "text", "text": "reply"}], "meta": meta},
-        )
+    # The first step is over the budget, so the tail is the second step.
+    assert agent.messages[5]["meta"]["keep_from"] == 3
+    after = adapter.requests[3].messages
+    assert _roles(after) == ["user", "assistant", "user"]
+    assert after[1:] == agent.messages[3:5]
+
+    adapter.responses = [_reply("MANUAL")]
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        marker = await agent.acompact()
+
+    # Only the answer follows the automatic marker, and it stays after the manual summary.
+    assert marker["meta"]["keep_from"] == 6
+    assert project(agent.messages, None)[1:] == [agent.messages[6]]
 
 
 @pytest.mark.asyncio
-async def test_failed_auto_compact_keeps_successful_turn_usage() -> None:
-    agent = Agent(model="m", provider="anthropic", context_window=100_000)
+async def test_failed_auto_compact_is_not_retried_in_the_same_turn() -> None:
+    usage: MessageMeta = {"usage": {"total_tokens": 90_000, "input_tokens": 89_000, "output_tokens": 1_000}}
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, tools=[dump])
+    adapter = _Adapter(
+        _call("c1", 10, **usage),
+        ValueError("summary failed"),
+        _call("c2", 10, **usage),
+        _reply("done"),
+    )
 
-    with patch("mycode.agent.get_provider_adapter", return_value=_FailingSummaryAdapter()):
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = [event async for event in agent.achat("hello")]
 
-    assert [event.type for event in events] == ["usage"]
-    assert isinstance(events[0], UsageEvent)
-    assert events[0].turn_usage == {
-        "total_tokens": 80_000,
-        "input_tokens": 79_000,
-        "output_tokens": 1_000,
-    }
-    assert all(message.get("role") != "compact" for message in agent.messages)
+    # One summary attempt, then the turn goes on with the full history.
+    assert len(adapter.requests) == 4
+    assert "compact" not in [event.type for event in events]
+    assert _roles(agent.messages) == ["user", "assistant", "user", "assistant", "user", "assistant"]
+    final_usage = [event for event in events if isinstance(event, UsageEvent)][-1]
+    assert final_usage.turn_usage == {"total_tokens": 180_000, "input_tokens": 178_000, "output_tokens": 2_000}
+
+    # The next turn tries again.
+    adapter.responses = [_reply("SUMMARY"), _reply("done again")]
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("next")]
+
+    assert "compact" in [event.type for event in events]
 
 
 @pytest.mark.asyncio
 async def test_failed_auto_compact_commit_propagates_without_publishing_marker(tmp_path: Path) -> None:
-    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path)
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path, tools=[dump])
     failure = OSError("compact persistence failed")
 
     async def persist(message: ConversationMessage) -> None:
         if message["role"] == "compact":
             raise failure
 
-    with patch("mycode.agent.get_provider_adapter", return_value=_UsageDetailAdapter()):
+    adapter = _Adapter(_call("c1", 10, usage={"total_tokens": 80_000}), _reply("SUMMARY"))
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         stream = agent.achat("hello", on_persist=persist)
-        assert (await anext(stream)).type == "usage"
+        assert [(await anext(stream)).type for _ in range(3)] == ["usage", "tool_start", "tool_done"]
         with pytest.raises(OSError, match="compact persistence failed") as exc:
             await anext(stream)
 
     assert exc.value is failure
-    assert [message["role"] for message in agent.messages] == ["user", "assistant"]
+    assert _roles(agent.messages) == ["user", "assistant", "user"]
     assert await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id) == agent.messages
-
-
-class _LegacyMetaAdapter:
-    """Simulates pre-usage assistant messages that only carry meta.total_tokens."""
-
-    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        yield MessageDone(
-            {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "reply"}],
-                "meta": {"total_tokens": 90_000},
-            }
-        )
 
 
 @pytest.mark.asyncio
 async def test_legacy_total_tokens_meta_is_ignored() -> None:
-    # meta.total_tokens intentionally no longer feeds compaction or the
-    # context metric; only meta.usage does.
+    # Only meta.usage feeds compaction and the context metric.
     agent = Agent(model="m", provider="anthropic", context_window=100_000)
 
-    with patch("mycode.agent.get_provider_adapter", return_value=_LegacyMetaAdapter()):
+    adapter = _Adapter({"role": "assistant", "content": [text_block("reply")], "meta": {"total_tokens": 90_000}})
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = [event async for event in agent.achat("hello")]
 
     assert [event.type for event in events] == ["usage"]
-    assert isinstance(events[0], UsageEvent)
-    assert events[0].context_tokens is None
+    assert isinstance(events[-1], UsageEvent)
+    assert events[-1].context_tokens is None

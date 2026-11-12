@@ -16,6 +16,7 @@ mycode/src/mycode/        # SDK package
   agent.py                # agent loop (Agent, achat, run)
   events.py               # streaming events yielded by achat (dataclasses)
   messages.py             # internal block-based message format
+  compact.py              # context compaction rules (pure functions)
   tools.py                # ToolSpec, ToolExecutor, ToolContext, @tool
   hooks.py                # before_tool / after_tool hook protocol
   session.py              # append-only JSONL timeline and rewind replay
@@ -56,7 +57,7 @@ scripts/
 
 ## Message Model
 
-One block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted roles: `user` · `assistant`, plus inline `compact` and `rewind` markers. Tool results persist as `user` messages carrying `tool_result` blocks; provider-specific extras live in `meta.native`. `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. The provider adapter substitutes post-compact history lazily per request (`prepare_messages`); visible state and JSONL keep the real history. A subagent's transcript is a child session in `<session>/agents/<child_id>/`; the parent's history holds only the `agent` call, its result, and any background notification. Schema, record types, and replay rules: `docs/sessions.md`.
+One block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted roles: `user` · `assistant`, plus inline `compact` and `rewind` markers. Tool results persist as `user` messages carrying `tool_result` blocks; provider-specific extras live in `meta.native`. `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. The agent substitutes post-compact history per request (`compact.project`); visible state and JSONL keep the real history. A subagent's transcript is a child session in `<session>/agents/<child_id>/`; the parent's history holds only the `agent` call, its result, and any background notification. Schema, record types, and replay rules: `docs/sessions.md`.
 
 ## Agent Loop
 
@@ -68,7 +69,7 @@ Per user turn (`mycode/src/mycode/agent.py`):
 4. Execute tool calls locally.
 5. Append `user` tool-result message.
 6. Repeat until no tool calls; `max_turns` defaults to unlimited.
-7. After each assistant/tool-result boundary, optionally compact when `total_tokens ≥ context_window × compact_threshold` (default `0.8`).
+7. Before every provider request (step 2), compact first when the last reported `total_tokens` plus an estimate of later messages ≥ `context_window × compact_threshold` (default `0.8`).
 
 ## Provider Adapters
 

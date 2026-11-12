@@ -7,7 +7,7 @@ from typing import Literal
 import pytest
 from fastapi.testclient import TestClient
 
-from mycode.compact import build_compact_event
+from mycode.compact import build_marker
 from mycode.messages import ConversationMessage
 from mycode_cli.server.app import create_app
 from mycode_cli.server.deps import get_run_manager, get_store
@@ -106,7 +106,7 @@ async def test_rewind_keeps_only_compact_markers_before_the_target(
         [
             text_message("user", "hello"),
             text_message("assistant", "hi"),
-            build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
+            build_marker("summary", trigger="auto", provider="p", model="m", context_window=100),
             text_message("user", "explain X"),
             text_message("assistant", "X is..."),
         ],
@@ -132,7 +132,7 @@ def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> N
     messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
+        build_marker("summary", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
     ]
     for message in messages:

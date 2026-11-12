@@ -67,8 +67,9 @@ class MessageMeta(TypedDict, total=False, extra_items=Any):
     input_id: str
     input_ids: list[str]
     steer: bool
-    # Compact markers.
+    # Compact markers. ``keep_from`` is the index of the first message kept verbatim.
     trigger: CompactTrigger
+    keep_from: int
 
 
 class TextBlock(TypedDict):

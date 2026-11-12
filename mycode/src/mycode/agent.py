@@ -25,9 +25,12 @@ from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
     NothingToCompactError,
-    build_compact_event,
+    build_marker,
+    find_keep_from,
     has_compactable_history,
+    project,
     should_compact,
+    summary_text,
 )
 from mycode.events import (
     CancelledEvent,
@@ -53,7 +56,6 @@ from mycode.messages import (
     StopReason,
     ToolUseBlock,
     build_message,
-    flatten_message_text,
     merge_user_messages,
     text_block,
     thinking_block,
@@ -77,7 +79,6 @@ from mycode.providers.base import (
 from mycode.session import SessionStore
 from mycode.tools import (
     ToolContext,
-    ToolDefinition,
     ToolExecutionResult,
     ToolExecutor,
     ToolSpec,
@@ -425,9 +426,36 @@ class Agent:
         adapter = get_provider_adapter(self.provider)
         segment = _TurnSegment(user_message)
         context_tokens: int | None = None
+        auto_compact = True
         steps = 0
         while True:
+            if auto_compact and should_compact(self.messages, self.context_window, self.compact_threshold):
+                marker = await self._auto_compact(run, adapter, on_persist)
+                if marker is None:
+                    # Repeating a failed summary request on every step would only add cost.
+                    auto_compact = False
+                else:
+                    yield CompactEvent(trigger="auto")
+                    # Summary usage is billed, but does not describe the normal context size.
+                    segment.add(marker)
+                    yield segment.usage_event(context_tokens, marker)
+
             run.check_cancelled()
+            # Steers are delivered at step boundaries, so the first request
+            # carries the user's message alone.
+            if steps and run.steers:
+                steers, run.steers = run.steers, []
+                # The merged message closes the current segment and opens the
+                # next, so usage, cost and the duration anchor restart from it.
+                steer_message = merge_user_messages(steers, steer=True)
+                await self._commit(steer_message, on_persist)
+                yield segment.usage_event(context_tokens, steer_message)
+                yield UserMessageEvent(message=steer_message)
+                segment = _TurnSegment(steer_message)
+
+            run.check_cancelled()
+            # Checked after delivery, so steers pending at the limit are
+            # committed before the turn fails.
             if self.max_turns is not None and steps >= self.max_turns:
                 raise _TurnFailed("max_turns reached")
             steps += 1
@@ -461,27 +489,10 @@ class Agent:
                         yield event
 
             run.check_cancelled()
-            if should_compact(context_tokens, self.context_window, self.compact_threshold):
-                compact_marker = await self._auto_compact(run, adapter, on_persist)
-                if compact_marker is not None:
-                    yield CompactEvent(trigger="auto")
-                    # Summary usage is billed, but does not describe the normal context size.
-                    segment.add(compact_marker)
-                    yield segment.usage_event(context_tokens, compact_marker)
-
-            run.check_cancelled()
-            # The take and closing the run to new steers share one synchronous
-            # stretch, so no steer is accepted after the final take and dropped.
-            steers, run.steers = run.steers, []
-            if steers:
-                # The merged message closes the current segment and opens the
-                # next, so usage, cost and the duration anchor restart from it.
-                steer_message = merge_user_messages(steers, steer=True)
-                await self._commit(steer_message, on_persist)
-                yield segment.usage_event(context_tokens, steer_message)
-                yield UserMessageEvent(message=steer_message)
-                segment = _TurnSegment(steer_message)
-            elif not tool_calls:
+            # The check for pending steers and closing the run to new ones share
+            # one synchronous stretch, so no steer is accepted after the final
+            # check and dropped.
+            if not tool_calls and not run.steers:
                 run.accepting_steers = False
                 return
 
@@ -499,7 +510,7 @@ class Agent:
         ``stop_reason`` keeps it out of provider replay.
         """
 
-        stream = self._stream_provider_turn(run, adapter, self._build_request(reasoning_effort=self.reasoning_effort))
+        stream = self._stream_provider_turn(run, adapter, self._build_request())
         try:
             async for provider_event in stream:
                 run.check_cancelled()
@@ -547,8 +558,8 @@ class Agent:
         except Exception:
             if run.cancel_requested:
                 raise
-            # Compaction must not block the current answer; the full
-            # transcript is still available for the next turn.
+            # A failed summary must not end the turn; the next request sends
+            # the full history instead.
             logger.warning("Context compaction failed, continuing without compaction", exc_info=True)
             return None
         await self._commit(marker, on_persist)
@@ -561,41 +572,37 @@ class Agent:
         *,
         trigger: CompactTrigger,
     ) -> ConversationMessage:
-        """Build a compact marker; callers own persistence and its failures."""
+        """Build a compact marker; callers own persistence and its failures.
+
+        The summary request is the normal request plus the summary prompt, so
+        providers can reuse the cached prefix.
+        """
 
         if not has_compactable_history(self.messages):
             raise NothingToCompactError("nothing to compact")
 
-        request = self._build_request(
-            tools=[],
-            max_tokens=min(self.max_tokens, 8192),
-            append_messages=[user_text_message(COMPACT_SUMMARY_PROMPT)],
-        )
-
-        summary_message: ConversationMessage | None = None
+        request = self._build_request(user_text_message(COMPACT_SUMMARY_PROMPT))
+        response: ConversationMessage | None = None
         async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
             async for provider_event in stream:
                 if isinstance(provider_event, MessageDone):
-                    summary_message = provider_event.message
-
-        if summary_message is None:
+                    response = provider_event.message
+        if response is None:
             raise ValueError("compaction produced no response")
-
-        summary_text = flatten_message_text(summary_message)
-        if not summary_text:
-            raise ValueError("compaction produced empty summary")
+        summary = summary_text(response)
 
         run.check_cancelled()
 
-        self._finalize_request_message(summary_message)
-        return build_compact_event(
-            summary_text,
+        self._finalize_request_message(response)
+        return build_marker(
+            summary,
             trigger=trigger,
             provider=self.provider,
             model=self.model,
             context_window=self.context_window,
-            usage=summary_message["meta"].get("usage"),
-            cost=summary_message["meta"].get("cost"),
+            usage=response["meta"].get("usage"),
+            cost=response["meta"].get("cost"),
+            keep_from=find_keep_from(self.messages, self.context_window),
         )
 
     def _finalize_request_message(self, message: ConversationMessage) -> None:
@@ -992,32 +999,26 @@ class Agent:
         base = min(8.0, 0.5 * 2 ** (failed_attempts - 1))
         return base * (1 - 0.25 * random.random())
 
-    def _build_request(
-        self,
-        *,
-        tools: list[ToolDefinition] | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        append_messages: Sequence[ConversationMessage] = (),
-    ) -> ProviderRequest:
-        """Build a ProviderRequest from the agent's current state."""
+    def _build_request(self, append: ConversationMessage | None = None) -> ProviderRequest:
+        """Build a ProviderRequest from the agent's current state, optionally with one message appended."""
 
+        messages = project(self.messages, self.transcript_path)
+        if append is not None:
+            messages = [*messages, append]
         return ProviderRequest(
             provider=self.provider,
             model=self.model,
             session_id=self.session_id,
-            messages=self.messages,
+            messages=messages,
             system=self.system,
-            tools=self.tools.definitions if tools is None else tools,
-            max_tokens=self.max_tokens if max_tokens is None else max_tokens,
+            tools=self.tools.definitions,
+            max_tokens=self.max_tokens,
             api_key=self.api_key,
             api_base=self.api_base,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=self.reasoning_effort,
             legacy_max_tokens=self.legacy_max_tokens,
             supports_image_input=self.supports_image_input,
             supports_pdf_input=self.supports_pdf_input,
-            transcript_path=self.transcript_path,
-            append_messages=list(append_messages),
             request_timeout=self.request_timeout,
         )
 

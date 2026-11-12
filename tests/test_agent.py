@@ -291,7 +291,9 @@ class _CancelledCompactAdapter:
     async def stream_turn(self, _request):
         self.requests += 1
         if self.requests == 1:
-            yield _text_turn(meta={"usage": {"total_tokens": 90}})[0]
+            # The tool loop continues, so the next request checks the threshold.
+            call: ContentBlock = {"type": "tool_use", "id": "call-1", "name": "ping", "input": {}}
+            yield _assistant_turn(call, meta={"usage": {"total_tokens": 90}})[0]
             return
         self.agent.cancel()
         raise asyncio.CancelledError
@@ -954,7 +956,7 @@ class TestAgentCancel:
                 events = [event async for event in agent.achat("hello")]
 
             assert adapter.requests == 2
-            assert [event.type for event in events] == ["usage", "cancelled"]
+            assert [event.type for event in events] == ["usage", "tool_start", "tool_done", "cancelled"]
             assert events[-1] == CancelledEvent()
 
     @pytest.mark.asyncio
