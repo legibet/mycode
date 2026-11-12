@@ -23,7 +23,7 @@ import { findToolUse } from "@/utils/messages";
 
 interface JobsBarProps {
   jobs: BackgroundJobInfo[];
-  onStopJob: (toolUseId: string) => void;
+  onStopJob: (jobId: string) => void;
   /** The session's rendered messages, where the calls that started the jobs are. */
   messages: RenderMessage[];
   /** What the panel lines up with: the in-flight card. */
@@ -31,7 +31,9 @@ interface JobsBarProps {
 }
 
 /** The list, with the row to focus on return from a command; or one command. */
-type PanelView = { kind: "list"; focus: string | null } | { kind: "command"; toolUseId: string };
+type PanelView =
+  | { kind: "list"; focus: string | null }
+  | { kind: "command"; job: BackgroundJobInfo };
 
 const KINDS = [
   { name: "bash", noun: "command" },
@@ -71,7 +73,7 @@ export function JobsBar({ jobs, onStopJob, messages, anchor }: JobsBarProps) {
   const showList = () =>
     setView((current) => ({
       kind: "list",
-      focus: current.kind === "command" ? current.toolUseId : null,
+      focus: current.kind === "command" ? current.job.id : null,
     }));
 
   return (
@@ -82,9 +84,7 @@ export function JobsBar({ jobs, onStopJob, messages, anchor }: JobsBarProps) {
           // A lone command has nothing to choose from: open straight to it.
           const only = jobs.length === 1 ? jobs[0] : undefined;
           setView(
-            only?.name === "bash"
-              ? { kind: "command", toolUseId: only.tool_use_id }
-              : { kind: "list", focus: null },
+            only?.name === "bash" ? { kind: "command", job: only } : { kind: "list", focus: null },
           );
           setPanelShown(true);
           setOpen(true);
@@ -127,9 +127,9 @@ export function JobsBar({ jobs, onStopJob, messages, anchor }: JobsBarProps) {
       >
         {view.kind === "command" ? (
           <CommandView
-            key={view.toolUseId}
-            toolUseId={view.toolUseId}
-            job={jobs.find((job) => job.tool_use_id === view.toolUseId)}
+            key={view.job.id}
+            job={view.job}
+            running={jobs.some((job) => job.id === view.job.id)}
             messages={messages}
             elapsed={elapsed}
             logUrl={links?.logUrl}
@@ -144,7 +144,7 @@ export function JobsBar({ jobs, onStopJob, messages, anchor }: JobsBarProps) {
             elapsed={elapsed}
             onOpen={(job) => {
               if (job.name === "bash") {
-                setView({ kind: "command", toolUseId: job.tool_use_id });
+                setView({ kind: "command", job });
               } else if (job.session_id) {
                 links?.openAgent(job.session_id);
                 setOpen(false);
@@ -173,7 +173,7 @@ function StopButton({
       size="xs"
       className={className}
       title={job.name === "agent" ? "Stop the agent" : "Stop the command"}
-      onClick={() => onStop(job.tool_use_id)}
+      onClick={() => onStop(job.id)}
     >
       <Square data-icon="inline-start" className="fill-current" />
       Stop
@@ -200,7 +200,7 @@ function JobList({
   messages: RenderMessage[];
   elapsed: (job: BackgroundJobInfo) => number;
   onOpen: (job: BackgroundJobInfo) => void;
-  onStop: (toolUseId: string) => void;
+  onStop: (jobId: string) => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
@@ -218,10 +218,10 @@ function JobList({
         const Icon = TOOL_ICON[job.name] ?? Terminal;
         const bash = job.name === "bash";
         return (
-          <li key={job.tool_use_id} className="flex items-start gap-1">
+          <li key={job.id} className="flex items-start gap-1">
             <button
               type="button"
-              data-job={job.tool_use_id}
+              data-job={job.id}
               className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
               onClick={() => onOpen(job)}
             >
@@ -248,28 +248,28 @@ function JobList({
 }
 
 function CommandView({
-  toolUseId,
   job,
+  running,
   messages,
   elapsed,
   logUrl,
   onBack,
   onStop,
 }: {
-  toolUseId: string;
-  /** The running job; gone once it has finished. */
-  job: BackgroundJobInfo | undefined;
+  job: BackgroundJobInfo;
+  /** Whether the job is still in the list; it leaves once it has finished. */
+  running: boolean;
   messages: RenderMessage[];
   elapsed: (job: BackgroundJobInfo) => number;
-  logUrl: ((toolUseId: string) => string) | undefined;
+  logUrl: ((jobId: string) => string) | undefined;
   onBack: () => void;
-  onStop: (toolUseId: string) => void;
+  onStop: (jobId: string) => void;
 }) {
-  const call = findToolUse(messages, toolUseId);
-  const command = commandOf(call, job?.label);
+  const call = findToolUse(messages, job.tool_use_id);
+  const command = commandOf(call, job.label);
   // The projection adds the exit code once the job's notification arrives.
   const exitCode = asNumber(call?.runtime?.metadata?.["exit_code"]);
-  const log = useLiveLog(logUrl ? logUrl(toolUseId) : null);
+  const log = useLiveLog(logUrl ? logUrl(job.id) : null);
 
   const backRef = useRef<HTMLButtonElement>(null);
   useEffect(() => backRef.current?.focus(), []);
@@ -281,7 +281,7 @@ function CommandView({
           <ArrowLeft />
         </Button>
         <span className="min-w-0 flex-1">
-          {job ? (
+          {running ? (
             <StatusPill>running · {formatDuration(elapsed(job))}</StatusPill>
           ) : exitCode !== null ? (
             <StatusPill tone={exitCode !== 0 ? "error" : "muted"}>exit {exitCode}</StatusPill>
@@ -289,7 +289,7 @@ function CommandView({
             <StatusPill>finished</StatusPill>
           )}
         </span>
-        {job && <StopButton job={job} onStop={onStop} />}
+        {running && <StopButton job={job} onStop={onStop} />}
       </div>
       <BashSurface command={command} output={<LiveLogText log={log} />} followTail fixed />
     </div>

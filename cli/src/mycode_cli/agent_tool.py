@@ -164,16 +164,18 @@ async def _agent_tool(
 
     if background:
         assert jobs is not None
+        job_id = uuid4().hex
         # Started eagerly, so the drain is at its loop before the job is
         # registered: a job closed at once never cancels a drain that has not
         # run, which would leave nothing waiting for the child to stop.
         drain = asyncio.Task(
-            _drain_background(jobs, turn, tool_use_id=tool_use_id, session_id=session_id, label=label),
+            _drain_background(jobs, turn, job_id=job_id, tool_use_id=tool_use_id, session_id=session_id, label=label),
             loop=asyncio.get_running_loop(),
             eager_start=True,
         )
         jobs.add(
             BackgroundJob(
+                id=job_id,
                 tool_use_id=tool_use_id,
                 name="agent",
                 label=label,
@@ -332,7 +334,7 @@ async def _wait(turn: ChildTurn, emit: ToolOutputCallback | None, cwd: Path) -> 
 
 
 async def _drain_background(
-    jobs: BackgroundJobs, turn: ChildTurn, *, tool_use_id: str, session_id: str, label: str
+    jobs: BackgroundJobs, turn: ChildTurn, *, job_id: str, tool_use_id: str, session_id: str, label: str
 ) -> None:
     """Follow a background turn to its end, then hand its result to the registry.
 
@@ -348,7 +350,14 @@ async def _drain_background(
         await asyncio.wait([turn.task])
         raise
     outcome = _outcome(turn)
-    job = {"tool_use_id": tool_use_id, "name": "agent", "label": label, "session_id": session_id, **outcome.stats()}
+    job = {
+        "id": job_id,
+        "tool_use_id": tool_use_id,
+        "name": "agent",
+        "label": label,
+        "session_id": session_id,
+        **outcome.stats(),
+    }
     await jobs.notify(text_block(f"Agent finished: {label}\n\n{_reply(outcome, session_id)}", meta={"job": job}))
 
 

@@ -139,19 +139,19 @@ async def load_agent_session(
     }
 
 
-@router.get("/{session_id}/logs/{tool_use_id}")
+@router.get("/{session_id}/logs/{job_id}")
 async def stream_log(
     session_id: PathId,
-    tool_use_id: PathId,
+    job_id: PathId,
     req: Request,
     store: StoreDep,
     runs: RunManagerDep,
     after: Annotated[int, Query(ge=0)] = 0,
 ) -> StreamingResponse:
-    """Stream the session's bash log of ``tool_use_id`` from byte ``after``, following it while its job runs."""
+    """Stream the log of the session's background command ``job_id`` from byte ``after``, following it while the job runs."""
 
     try:
-        log = (store.tool_output_dir(session_id) / f"bash-{tool_use_id}.log").open("rb")
+        log = (store.tool_output_dir(session_id) / f"bash-{job_id}.log").open("rb")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="log not found") from None
 
@@ -161,7 +161,7 @@ async def stream_log(
             while True:
                 # Checked before the read: once the job is gone, its last
                 # output is in the file and this read goes to its end.
-                running = runs.has_job(session_id, tool_use_id)
+                running = runs.has_job(session_id, job_id)
                 if chunk := await asyncio.to_thread(log.read, LOG_CHUNK_BYTES):
                     yield chunk
                 elif not running or await req.is_disconnected():
@@ -174,15 +174,15 @@ async def stream_log(
     )
 
 
-@router.delete("/{session_id}/jobs/{tool_use_id}")
+@router.delete("/{session_id}/jobs/{job_id}")
 async def stop_job(
     session_id: PathId,
-    tool_use_id: PathId,
+    job_id: PathId,
     runs: RunManagerDep,
 ) -> StatusResponse:
     """Stop a running background job, a command or an agent; its result still reaches the model."""
 
-    if not runs.kill_job(session_id, tool_use_id):
+    if not runs.kill_job(session_id, job_id):
         raise HTTPException(status_code=404, detail="background job not found")
     return StatusResponse(status="ok")
 

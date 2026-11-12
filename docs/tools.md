@@ -33,7 +33,7 @@ Applies a list of `{oldText, newText}` replacements. All entries match against t
 Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `bash` on `PATH`. bash starts non-interactive and non-login, so the command sees the CLI process environment as-is; no profile or rc file is sourced. stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
 
 - **Streaming**: output is emitted as display deltas while the command runs. Delta boundaries do not imply line boundaries.
-- **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. Lines end at `\n` only, so `\r` progress updates stay on their line, and the 50KB counts the text shown, without line terminators. When the raw output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<tool_call_id>.log` (see `docs/sessions.md`); when the tail drops output, the result appends an `[Output truncated: ...]` notice citing that path.
+- **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. Lines end at `\n` only, so `\r` progress updates stay on their line, and the 50KB counts the text shown, without line terminators. When the raw output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<id>.log`, named by an id generated for the call (see `docs/sessions.md`); when the tail drops output, the result appends an `[Output truncated: ...]` notice citing that path.
 - **Timeout**: default 120s, overridden by the `timeout` argument. On expiry the process group is killed and the result is the captured tail plus `[Command timed out after <N>s]` with `is_error=true`.
 - **Cancellation**: bash handles task cancellation itself — it kills the process group, drains remaining output, and returns the captured tail plus `error: cancelled` with `is_error=true`.
 - **Exit code**: non-zero exit appends `[exit code: N]` and sets `is_error=true`. Empty output renders as `(empty)`.
@@ -43,19 +43,21 @@ Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `
 
 `background=true` starts the command and returns at once. Use it for long commands the model does not need to wait for; `timeout` is ignored.
 
-- **Start result**: `is_error=false`, metadata `{"background": true, "pid": <pid>, "log": "<path>"}`, and this text:
+- **Start result**: `is_error=false`, metadata `{"background": true, "pid": <pid>, "log": "<path>", "job_id": "<id>"}`, and this text:
 
   ```text
   Started in background (pid 12345): pytest -q
-  Log: <tool_output_dir>/bash-<tool_call_id>.log
+  Log: <tool_output_dir>/bash-<job_id>.log
   ```
+
+  `job_id` is the id of the background job (`docs/api.md`, `BackgroundJobInfo`), and it names the log.
 
   The tool description tells the model not to poll and to end its turn when nothing else is left; the result text itself carries only facts, since both UIs show it.
 
 - **Log file**: opened before the call returns and flushed after every chunk, so `read` on it shows live output. Reads inside `tool_output_dir` need no approval.
 - **Notification**: when the command exits, the host delivers a text block carrying `meta.job` (`docs/sessions.md`) to the model: a header `Background bash finished (pid <pid>, exit code <N>): <command>` and `Log: <path>`, then the bounded tail in the foreground format. A process ended by a signal reports the negative return code. The header carries the exit code, so no `[exit code: N]` trailer follows. When the output cannot be captured (such as a log file that cannot be written), the notification still arrives, with `error: <reason>` after whatever output was captured.
 - **Delivery**: the result is steered into the running turn, becomes the next turn when the running turn is finishing, or wakes the idle session as a new turn. Stop (TUI Esc, web Stop) or a permission `Deny` suspends wakes until the user's next message, which then carries the result ahead of its text. The result waits in the session's job registry until a run has committed it, so an interrupted or failed run never loses it, and it is never delivered twice.
-- **Lifecycle**: `/rewind`, `rewind_to`, `/new`, a completed `/resume`, session delete, and server shutdown kill the session's background commands and agents and drop undelivered results. The web UI's Stop (`DELETE /api/sessions/{id}/jobs/{tool_use_id}`) and a `kill <pid>` through a normal `bash` call end one command early; its result is still delivered, with the signal's negative exit code. No command survives the process.
+- **Lifecycle**: `/rewind`, `rewind_to`, `/new`, a completed `/resume`, session delete, and server shutdown kill the session's background commands and agents and drop undelivered results. The web UI's Stop (`DELETE /api/sessions/{id}/jobs/{job_id}`) and a `kill <pid>` through a normal `bash` call end one command early; its result is still delivered, with the signal's negative exit code. No command survives the process.
 - **Permission**: classified from the command text as usual; the review preview ends with `(background)`.
 - **Hosts without delivery**: `mycode run` and subagents have no job registry, so they return `error: background commands are not available in this mode` with `is_error=true` and spawn nothing.
 
@@ -65,7 +67,7 @@ Reads one HTTP or HTTPS URL using the implementation selected by `web.fetch`: lo
 
 - `timeout` is a whole-call budget, including redirects, the local 403 User-Agent retry, provider requests, and response reading. It defaults to 30 seconds and is clamped to 1–120. Timeout errors tell the model it may retry with a larger value.
 - Every HTTP response is streamed with a 5MB decoded-body cap. Responses over the limit return `error: response too large (over 5MB)`.
-- Output keeps the first 2000 lines or 50KB. When truncated, the complete converted content is written to `<tool_output_dir>/webfetch-<tool_call_id>.md`; the result ends with `[Output truncated: ...]` naming the path and telling the model to use `read`.
+- Output keeps the first 2000 lines or 50KB. When truncated, the complete converted content is written to `<tool_output_dir>/webfetch-<id>.md`, named by a generated id; the result ends with `[Output truncated: ...]` naming the path and telling the model to use `read`.
 - A redirect appends `[Redirected to <final_url>]`. Provider failures and HTTP failures use lowercase `error:` results with `is_error=true`. Implementations never fall back to another provider.
 
 The local converter removes non-rendering HTML tags and data-URI images, then converts the full body to Markdown. It does not select an article or remove navigation, headers, or footers.

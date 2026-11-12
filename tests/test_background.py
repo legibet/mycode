@@ -31,8 +31,9 @@ async def _wait_for_pending(jobs: BackgroundJobs) -> None:
         await asyncio.gather(*(job.task for job in jobs.jobs))
 
 
-def _job_block(tool_use_id: str) -> TextBlock:
-    return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
+def _job_block(job_id: str, tool_use_id: str = "toolu_1") -> TextBlock:
+    job = {"id": job_id, "tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}
+    return text_block("done", meta={"job": job})
 
 
 class TestTool:
@@ -52,10 +53,12 @@ class TestTool:
         assert result.output.startswith("Started in background (pid ")
         assert result.metadata is not None
         assert result.metadata["background"] is True
+        job_id = result.metadata["job_id"]
         log = Path(result.metadata["log"])
-        assert log == tmp_path / "tool-output" / "bash-toolu_1.log"
+        assert log == tmp_path / "tool-output" / f"bash-{job_id}.log"
         [job] = jobs.jobs
         assert job.info() == {
+            "id": job_id,
             "tool_use_id": "toolu_1",
             "name": "bash",
             "label": "echo first; sleep 0.2; echo second; exit 3",
@@ -70,6 +73,7 @@ class TestTool:
         block = jobs.pending[0]
         assert block["type"] == "text"
         assert block["meta"]["job"] == {
+            "id": job_id,
             "tool_use_id": "toolu_1",
             "name": "bash",
             "label": "echo first; sleep 0.2; echo second; exit 3",
@@ -103,13 +107,15 @@ class TestTool:
 
     async def test_kill_ends_the_command_and_still_delivers_its_result(self, tmp_path: Path) -> None:
         jobs = BackgroundJobs()
-        await _ctx(tmp_path, jobs).acall("bash", {"command": "sleep 30", "background": True})
+        result = await _ctx(tmp_path, jobs).acall("bash", {"command": "sleep 30", "background": True})
+        assert result.metadata is not None
+        job_id = result.metadata["job_id"]
 
-        assert jobs.kill("toolu_1") is True
+        assert jobs.kill(job_id) is True
         await _wait_for_pending(jobs)
 
         [block] = jobs.pending
-        assert block["meta"]["job"]["tool_use_id"] == "toolu_1"
+        assert block["meta"]["job"]["id"] == job_id
         assert block["meta"]["job"]["exit_code"] < 0
         assert jobs.jobs == []
 
@@ -127,6 +133,7 @@ class TestRegistry:
         task = asyncio.create_task(drain())
         jobs.add(
             BackgroundJob(
+                id="job_a",
                 tool_use_id="a",
                 name="bash",
                 label="x",
@@ -151,9 +158,16 @@ class TestRegistry:
             await asyncio.Event().wait()
 
         bash = BackgroundJob(
-            tool_use_id="a", name="bash", label="x", started_at="", task=asyncio.create_task(run()), kill=lambda: None
+            id="job_a",
+            tool_use_id="a",
+            name="bash",
+            label="x",
+            started_at="",
+            task=asyncio.create_task(run()),
+            kill=lambda: None,
         )
         agent = BackgroundJob(
+            id="job_b",
             tool_use_id="b",
             name="agent",
             label="y",
@@ -168,6 +182,7 @@ class TestRegistry:
         assert jobs.find("child") is agent
         assert jobs.find("a") is None
         assert agent.info() == {
+            "id": "job_b",
             "tool_use_id": "b",
             "name": "agent",
             "label": "y",
@@ -185,8 +200,8 @@ class TestRegistry:
         jobs.pending.append(_job_block("c"))
         second = jobs.take_pending()
 
-        assert [b["meta"]["job"]["tool_use_id"] for b in first] == ["a", "b"]
-        assert [b["meta"]["job"]["tool_use_id"] for b in second] == ["c"]
+        assert [b["meta"]["job"]["id"] for b in first] == ["a", "b"]
+        assert [b["meta"]["job"]["id"] for b in second] == ["c"]
         assert jobs.take_pending() == []
         assert len(jobs.pending) == 3
 
@@ -197,6 +212,15 @@ class TestRegistry:
 
         jobs.reconcile([build_message("user", [taken[0], text_block("hello")])])
 
-        assert [b["meta"]["job"]["tool_use_id"] for b in jobs.pending] == ["b"]
+        assert [b["meta"]["job"]["id"] for b in jobs.pending] == ["b"]
         assert jobs.in_flight == set()
         assert jobs.take_pending() == jobs.pending
+
+    def test_reconcile_keeps_a_job_that_shares_the_call_id_of_a_committed_one(self) -> None:
+        jobs = BackgroundJobs()
+        jobs.pending = [_job_block("a", "toolu_1"), _job_block("b", "toolu_1")]
+        taken = jobs.take_pending()
+
+        jobs.reconcile([build_message("user", [taken[0]])])
+
+        assert [b["meta"]["job"]["id"] for b in jobs.pending] == ["b"]

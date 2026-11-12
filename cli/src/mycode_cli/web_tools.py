@@ -8,6 +8,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import httpx2
 from bs4 import BeautifulSoup
@@ -400,7 +401,7 @@ def _format_fetch_result(
     if final_url != requested_url:
         notes.append(f"[Redirected to {final_url}]")
     if truncated_by:
-        path = ctx.deps.tool_output_dir / f"webfetch-{ctx.tool_call_id or 'call'}.md"
+        path = ctx.deps.tool_output_dir / f"webfetch-{uuid4().hex}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         limit = f"{DEFAULT_MAX_LINES} lines" if truncated_by == "lines" else f"{DEFAULT_MAX_BYTES // 1024}KB"

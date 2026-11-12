@@ -14,6 +14,7 @@ describe("JobMarker", () => {
         jobs={[
           {
             name: "bash",
+            id: "job-1",
             tool_use_id: "call-1",
             label: `${command.slice(0, 77)}...`,
             command,
@@ -41,6 +42,7 @@ describe("JobMarker", () => {
         jobs={[
           {
             name: "bash",
+            id: "job-a",
             tool_use_id: "a",
             label: "make",
             command: "make",
@@ -49,6 +51,7 @@ describe("JobMarker", () => {
           },
           {
             name: "bash",
+            id: "job-b",
             tool_use_id: "b",
             label: "lint",
             command: "lint",
@@ -72,6 +75,7 @@ describe("JobMarker", () => {
           jobs={[
             {
               name: "agent",
+              id: "job-r",
               tool_use_id: "call-r",
               label: "Map the config",
               session_id: "call-a",
@@ -106,6 +110,7 @@ describe("JobMarker", () => {
         jobs={[
           {
             name: "agent",
+            id: "job-r",
             tool_use_id: "call-r",
             label: "Slow file survey",
             session_id: "call-a",

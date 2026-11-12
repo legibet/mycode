@@ -1001,7 +1001,7 @@ class TerminalChat:
             if action is None:
                 return
             if action == "stop":
-                if self.jobs.kill(job.tool_use_id):
+                if self.jobs.kill(job.id):
                     self._print_done("stopped", description)
                 else:
                     self.terminal.print(Text("agent already finished", style=MUTED))

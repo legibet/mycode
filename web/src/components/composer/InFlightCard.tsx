@@ -15,7 +15,7 @@ import type { PendingInput, RenderMessage } from "@/types";
 
 interface InFlightCardProps {
   jobs: BackgroundJobInfo[];
-  onStopJob: (toolUseId: string) => void;
+  onStopJob: (jobId: string) => void;
   /** The session's rendered messages, where the jobs' calls are. */
   messages: RenderMessage[];
   queued: PendingInput[];

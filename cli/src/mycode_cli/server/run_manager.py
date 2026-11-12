@@ -168,17 +168,17 @@ class RunManager:
         jobs = self._jobs.get(session_id)
         return [job.info() for job in jobs.jobs] if jobs is not None else []
 
-    def has_job(self, session_id: str, tool_use_id: str) -> bool:
-        """Whether the session has the running background job ``tool_use_id``."""
+    def has_job(self, session_id: str, job_id: str) -> bool:
+        """Whether the session has the running background job ``job_id``."""
 
         jobs = self._jobs.get(session_id)
-        return jobs is not None and any(job.tool_use_id == tool_use_id for job in jobs.jobs)
+        return jobs is not None and any(job.id == job_id for job in jobs.jobs)
 
-    def kill_job(self, session_id: str, tool_use_id: str) -> bool:
+    def kill_job(self, session_id: str, job_id: str) -> bool:
         """Kill one running background job; ``False`` when the session has no such job."""
 
         jobs = self._jobs.get(session_id)
-        return jobs is not None and jobs.kill(tool_use_id)
+        return jobs is not None and jobs.kill(job_id)
 
     async def close_jobs(self, session_id: str) -> None:
         """Kill the session's background jobs and forget its registry."""

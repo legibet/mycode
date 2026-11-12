@@ -25,7 +25,7 @@ export function JobMarker({ jobs }: { jobs: JobResult[] }) {
       {jobs.map((job) =>
         job.name === "agent" ? (
           <ToolRow
-            key={job.tool_use_id}
+            key={job.id}
             icon={Bot}
             label={AGENT_ENDED[job.status]}
             preview={job.label}
@@ -43,7 +43,7 @@ export function JobMarker({ jobs }: { jobs: JobResult[] }) {
           </ToolRow>
         ) : (
           <ToolRow
-            key={job.tool_use_id}
+            key={job.id}
             icon={Terminal}
             label="Background finished"
             preview={job.command}

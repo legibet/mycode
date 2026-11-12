@@ -960,7 +960,7 @@ export function useChat(
         if (event.type === "job_started") {
           dispatch({ type: "job_started", job: event.job });
         } else if (event.type === "job_finished") {
-          dispatch({ type: "job_finished", toolUseId: event.job.tool_use_id });
+          dispatch({ type: "job_finished", id: event.job.id });
         } else if (event.type === "run_started" && event.run.id !== activeRunRef.current?.id) {
           sync(event.run.id);
         }
@@ -976,11 +976,11 @@ export function useChat(
 
   /** Stop a running background job, a command or an agent. Its result still reaches the model;
    * the job leaves the list with the `job_finished` event. */
-  const stopJob = useCallback(async (toolUseId: string) => {
+  const stopJob = useCallback(async (jobId: string) => {
     const sessionId = activeSessionRef.current.id;
     try {
       const res = await fetch(
-        `/api/sessions/${encodeURIComponent(sessionId)}/jobs/${encodeURIComponent(toolUseId)}`,
+        `/api/sessions/${encodeURIComponent(sessionId)}/jobs/${encodeURIComponent(jobId)}`,
         { method: "DELETE" },
       );
       // 404: already finished.

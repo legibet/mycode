@@ -1424,8 +1424,9 @@ async def test_compact_run_refuses_enqueue() -> None:
 # Background job results
 
 
-def _job_block(tool_use_id: str) -> TextBlock:
-    return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
+def _job_block(job_id: str) -> TextBlock:
+    job = {"id": job_id, "tool_use_id": "toolu_1", "name": "bash", "label": "x", "exit_code": 0}
+    return text_block("done", meta={"job": job})
 
 
 class JobRunAgent(SimpleAgent):
@@ -1459,7 +1460,7 @@ async def test_run_end_drops_committed_job_results_and_redelivers_the_rest() -> 
     manager = RunManager()
     jobs = manager.jobs_for("s1")
     calls = _record_deliveries(jobs)
-    committed, missed = _job_block("toolu_a"), _job_block("toolu_b")
+    committed, missed = _job_block("job_a"), _job_block("job_b")
     jobs.pending = [committed, missed]
     assert jobs.take_pending() == [committed, missed]
 
@@ -1488,7 +1489,7 @@ async def test_cancelled_run_suspends_wakes_and_still_offers_pending_results() -
         base_messages=[],
         agent=agent,
     )
-    block = _job_block("toolu_a")
+    block = _job_block("job_a")
     jobs.pending.append(block)
 
     await manager.cancel_run(run["id"])
@@ -1507,7 +1508,7 @@ async def test_a_wake_started_as_the_run_ends_keeps_its_results(monkeypatch: pyt
 
     manager = RunManager()
     jobs = manager.jobs_for("s1")
-    block = _job_block("toolu_a")
+    block = _job_block("job_a")
     wake_agent = JobRunAgent([])
     wakes: list[dict[str, Any]] = []
     steered: list[TextBlock] = []
@@ -1554,7 +1555,7 @@ async def test_failed_wake_suspends_only_when_its_message_never_committed(commit
     manager = RunManager()
     jobs = manager.jobs_for("s1")
     calls = _record_deliveries(jobs)
-    block = _job_block("toolu_a")
+    block = _job_block("job_a")
     jobs.pending.append(block)
     message = build_message("user", jobs.take_pending())
 
@@ -1602,7 +1603,7 @@ async def test_live_jobs_of_an_unknown_session_is_empty_and_creates_no_registry(
     manager = RunManager()
 
     assert manager.live_jobs("s1") == []
-    assert manager.kill_job("s1", "toolu_a") is False
+    assert manager.kill_job("s1", "job_a") is False
     assert manager._jobs == {}
 
 
@@ -1615,13 +1616,20 @@ async def test_subscribers_see_job_start_and_finish() -> None:
 
     job_task = asyncio.create_task(run_until_killed())
     job = BackgroundJob(
-        tool_use_id="toolu_a", name="bash", label="sleep", pid=1, started_at="", task=job_task, kill=release.set
+        id="job_a",
+        tool_use_id="toolu_a",
+        name="bash",
+        label="sleep",
+        pid=1,
+        started_at="",
+        task=job_task,
+        kill=release.set,
     )
 
     async with manager.subscribe() as events:
         manager.jobs_for("s1").add(job)
         assert manager.live_jobs("s1") == [job.info()]
-        assert manager.kill_job("s1", "toolu_a") is True
+        assert manager.kill_job("s1", "job_a") is True
         await job_task
         await asyncio.sleep(0)
 
@@ -1645,7 +1653,14 @@ async def test_close_kills_jobs_without_waking_the_session() -> None:
     job_task = asyncio.create_task(run_forever())
     jobs.add(
         BackgroundJob(
-            tool_use_id="toolu_a", name="bash", label="sleep", pid=1, started_at="", task=job_task, kill=lambda: None
+            id="job_a",
+            tool_use_id="toolu_a",
+            name="bash",
+            label="sleep",
+            pid=1,
+            started_at="",
+            task=job_task,
+            kill=lambda: None,
         )
     )
     await manager.start_run(
@@ -1655,7 +1670,7 @@ async def test_close_kills_jobs_without_waking_the_session() -> None:
         base_messages=[],
         agent=BlockingAgent(),
     )
-    jobs.pending.append(_job_block("toolu_b"))
+    jobs.pending.append(_job_block("job_b"))
 
     await manager.aclose()
 
@@ -1669,11 +1684,11 @@ async def test_snapshot_never_lists_job_results_as_pending_input() -> None:
     manager = RunManager()
     agent = QueueAgent()
     state = await _start_queue_run(manager, agent)
-    job_message = build_message("user", [_job_block("toolu_a")])
+    job_message = build_message("user", [_job_block("job_a")])
     assert agent.steer(_input("use sqlite", "s1"))
     assert agent.steer(job_message)
     assert await manager.enqueue(state, _input("later", "q1"))
-    assert await manager.enqueue(state, build_message("user", [_job_block("toolu_b")]))
+    assert await manager.enqueue(state, build_message("user", [_job_block("job_b")]))
 
     snapshot = await manager.snapshot_session("session-1")
 

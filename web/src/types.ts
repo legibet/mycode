@@ -258,6 +258,7 @@ export interface AgentOutcome {
 export type JobResult =
   | {
       name: "bash";
+      id: string;
       tool_use_id: string;
       /** The shortened command. */
       label: string;
@@ -269,6 +270,7 @@ export type JobResult =
     }
   | (AgentOutcome & {
       name: "agent";
+      id: string;
       tool_use_id: string;
       /** The agent's description. */
       label: string;

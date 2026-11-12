@@ -2447,6 +2447,7 @@ describe("useChat server events", () => {
               text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
               meta: {
                 job: {
+                  id: "job-1",
                   tool_use_id: "call-1",
                   name: "bash",
                   label: "sleep 1",
@@ -2657,8 +2658,9 @@ describe("useChat server events", () => {
     expect(calls(fetchMock, SESSION_URL)).toBe(loads);
   });
 
-  const jobInfo = (tool_use_id: string, label = "sleep 30") => ({
-    tool_use_id,
+  const jobInfo = (id: string, label = "sleep 30") => ({
+    id,
+    tool_use_id: `call-${id}`,
     name: "bash" as const,
     label,
     pid: 7,
@@ -2667,50 +2669,50 @@ describe("useChat server events", () => {
 
   it("keeps the shown session's running jobs from the snapshot and job events", async () => {
     const { result, source } = await renderWithSession(() =>
-      createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
+      createSessionResponse({ ...idleSession, jobs: [jobInfo("job-1")] }),
     );
-    expect(result.current.jobs).toEqual([jobInfo("call-1")]);
+    expect(result.current.jobs).toEqual([jobInfo("job-1")]);
 
     source.emit({
       type: "job_started",
       session_id: "session-1",
-      job: jobInfo("call-2", "make"),
+      job: jobInfo("job-2", "make"),
     });
     source.emit({
       type: "job_started",
       session_id: "session-other",
-      job: jobInfo("call-3"),
+      job: jobInfo("job-3"),
     });
-    expect(result.current.jobs).toEqual([jobInfo("call-1"), jobInfo("call-2", "make")]);
+    expect(result.current.jobs).toEqual([jobInfo("job-1"), jobInfo("job-2", "make")]);
 
     source.emit({
       type: "job_finished",
       session_id: "session-other",
-      job: jobInfo("call-2", "make"),
+      job: jobInfo("job-2", "make"),
     });
     source.emit({
       type: "job_finished",
       session_id: "session-1",
-      job: jobInfo("call-1"),
+      job: jobInfo("job-1"),
     });
-    expect(result.current.jobs).toEqual([jobInfo("call-2", "make")]);
+    expect(result.current.jobs).toEqual([jobInfo("job-2", "make")]);
   });
 
   it("stops a job with a DELETE and treats an already finished one as done", async () => {
     const session = (init?: RequestInit) =>
       init?.method === "DELETE"
         ? createJsonResponse({ detail: "background job not found" }, 404)
-        : createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
+        : createSessionResponse({ ...idleSession, jobs: [jobInfo("job-1")] });
     const { result, fetchMock } = await renderWithSession(() => session(), {
       [SESSION_URL]: session,
     });
 
     await act(async () => {
-      await result.current.stopJob("call-1");
+      await result.current.stopJob("job-1");
     });
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toEqual([
-      [`${SESSION_URL}/jobs/call-1`, { method: "DELETE" }],
+      [`${SESSION_URL}/jobs/job-1`, { method: "DELETE" }],
     ]);
     expect(result.current.sendError).toBeNull();
   });
@@ -2729,6 +2731,7 @@ describe("useChat server events", () => {
               text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
               meta: {
                 job: {
+                  id: "job-1",
                   tool_use_id: "call-1",
                   name: "bash",
                   label: "sleep 1",
@@ -2764,14 +2767,14 @@ describe("useChat server events", () => {
       }),
       [SESSION_URL]: createJsonResponse({
         ...idleSession,
-        jobs: [jobInfo("call-1")],
+        jobs: [jobInfo("job-1")],
       }),
     });
     const hook = renderHook(
       (cwd: string) => useChat({ provider: "", model: "", cwd, reasoningEfforts: {} }),
       { initialProps: "/workspace/a" },
     );
-    await waitFor(() => expect(hook.result.current.jobs).toEqual([jobInfo("call-1")]));
+    await waitFor(() => expect(hook.result.current.jobs).toEqual([jobInfo("job-1")]));
 
     hook.rerender("/workspace/b");
 

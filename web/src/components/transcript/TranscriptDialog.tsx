@@ -28,7 +28,7 @@ interface ViewProps {
   /** The parent session's running background jobs. */
   jobs: BackgroundJobInfo[];
   onOpen: (transcript: TranscriptTarget) => void;
-  onStopJob: (toolUseId: string) => void;
+  onStopJob: (jobId: string) => void;
   /** The app's `/api/events` subscription, which announces the child's runs. */
   subscribeEvents: SubscribeServerEvents;
 }
@@ -202,7 +202,7 @@ function AgentView({
             variant="ghost"
             size="xs"
             title="Stop the agent"
-            onClick={() => onStopJob(job.tool_use_id)}
+            onClick={() => onStopJob(job.id)}
           >
             <Square data-icon="inline-start" className="fill-current" />
             Stop

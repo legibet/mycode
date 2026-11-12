@@ -202,6 +202,7 @@ def _add_agent_job(jobs: BackgroundJobs, session_id: str, *, steer: Callable[[st
 
     jobs.add(
         BackgroundJob(
+            id=f"job_{session_id}",
             tool_use_id=f"call_{session_id}",
             name="agent",
             label="x",
@@ -407,6 +408,7 @@ class TestBackground:
         [job] = jobs.jobs
         assert (job.name, job.label, job.session_id, job.pid) == ("agent", "Find things", "child_a", None)
         assert job.info() == {
+            "id": job.id,
             "tool_use_id": "call_b",
             "name": "agent",
             "label": "Find things",
@@ -421,6 +423,7 @@ class TestBackground:
         meta = block["meta"]["job"]
         assert isinstance(meta.pop("duration_ms"), int)
         assert meta == {
+            "id": job.id,
             "tool_use_id": "call_b",
             "name": "agent",
             "label": "Find things",
@@ -473,7 +476,8 @@ class TestBackground:
         await _call_tool(parent, "call_b", background=True)
         async with asyncio.timeout(5):
             await started.wait()
-        assert jobs.kill("call_b")
+        [job] = jobs.jobs
+        assert jobs.kill(job.id)
         await _finish_jobs(jobs)
 
         [block] = jobs.pending

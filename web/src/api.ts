@@ -117,6 +117,7 @@ export interface RunInfo {
 
 /** A running background job, as `GET /api/sessions/{id}` and `/api/events` describe it. */
 export interface BackgroundJobInfo {
+  id: string;
   /** The call that started the job. */
   tool_use_id: string;
   name: "bash" | "agent";

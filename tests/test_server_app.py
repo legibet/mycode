@@ -1123,7 +1123,7 @@ def _reply(text: str) -> ConversationMessage:
     return {"role": "assistant", "content": [{"type": "text", "text": text}]}
 
 
-def _job_ids(message: ConversationMessage) -> list[str | None]:
+def _job_calls(message: ConversationMessage) -> list[str | None]:
     return [((block.get("meta") or {}).get("job") or {}).get("tool_use_id") for block in message.get("content") or []]
 
 
@@ -1241,13 +1241,13 @@ async def test_result_after_the_turn_wakes_the_session(tmp_path: Path, monkeypat
     assert len(adapter.requests) == 3
     wake_input = adapter.requests[2][-1]
     assert wake_input["role"] == "user"
-    assert _job_ids(wake_input) == ["toolu_bg"]
+    assert _job_calls(wake_input) == ["toolu_bg"]
     persisted = [
-        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_calls(m) == ["toolu_bg"]
     ]
     assert [m["content"][0]["meta"]["job"]["exit_code"] for m in persisted] == [2]
     assert session["active_run"] is None
-    assert [_job_ids(m) for m in session["messages"]].count(["toolu_bg"]) == 1
+    assert [_job_calls(m) for m in session["messages"]].count(["toolu_bg"]) == 1
 
 
 async def test_result_during_the_turn_arrives_as_a_steer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1268,7 +1268,7 @@ async def test_result_during_the_turn_arrives_as_a_steer(tmp_path: Path, monkeyp
     assert run.status == "completed"
     assert len(adapter.requests) == 3
     [steer] = [
-        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_calls(m) == ["toolu_bg"]
     ]
     assert steer["meta"]["steer"] is True
     assert steer["meta"]["input_ids"] == []
@@ -1288,7 +1288,7 @@ async def test_stop_holds_the_result_for_the_next_message(tmp_path: Path, monkey
         idle = (await app.client.get("/api/sessions/s1")).json()
         assert idle["active_run"] is None
         assert app.jobs.suspended is True
-        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+        assert _job_calls(build_message("user", app.jobs.pending)) == ["toolu_bg"]
 
         second = await app.chat("what happened?")
         assert app.jobs.suspended is False
@@ -1296,9 +1296,9 @@ async def test_stop_holds_the_result_for_the_next_message(tmp_path: Path, monkey
         assert app.jobs.pending == []
 
     # The client learns from the response that its message carried the result.
-    assert _job_ids(app.last_chat["message"]) == ["toolu_bg", None]
+    assert _job_calls(app.last_chat["message"]) == ["toolu_bg", None]
     user_turn = app.store.load_raw_messages_sync("s1")[-2]
-    assert _job_ids(user_turn) == ["toolu_bg", None]
+    assert _job_calls(user_turn) == ["toolu_bg", None]
     assert user_turn["content"][1]["text"] == "what happened?"
     assert len(adapter.requests) == 3
 
@@ -1321,13 +1321,13 @@ async def test_a_wake_that_cannot_start_holds_the_result_for_the_next_message(
         assert await app.runs.get_active_run("s1") is None
         assert app.jobs.suspended is True
         assert app.jobs.in_flight == set()
-        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+        assert _job_calls(build_message("user", app.jobs.pending)) == ["toolu_bg"]
 
         monkeypatch.setattr(SessionStore, "load_totals", load_totals)
         await app.wait(await app.chat("what happened?"))
         assert app.jobs.pending == []
 
-    assert _job_ids(app.last_chat["message"]) == ["toolu_bg", None]
+    assert _job_calls(app.last_chat["message"]) == ["toolu_bg", None]
     assert len(adapter.requests) == 3
 
 
@@ -1354,7 +1354,7 @@ async def test_a_wake_leaves_a_result_that_arrived_during_it_to_the_next_wake(
         async with app.runs.session_operation("s1"):
             gate_b.touch()
             async with asyncio.timeout(5):
-                while "toolu_b" not in _job_ids(build_message("user", app.jobs.pending)):  # noqa: ASYNC110
+                while "toolu_b" not in _job_calls(build_message("user", app.jobs.pending)):  # noqa: ASYNC110
                     await asyncio.sleep(0.02)
             adapter.release.set()
             while (await app.next_event(events, "run_finished"))["run"]["id"] != wake_a.id:
@@ -1366,7 +1366,7 @@ async def test_a_wake_leaves_a_result_that_arrived_during_it_to_the_next_wake(
         assert app.jobs.pending == []
 
     assert wake_b.wake is True
-    assert [_job_ids(request[-1]) for request in adapter.requests[3:]] == [["toolu_a"], ["toolu_b"]]
+    assert [_job_calls(request[-1]) for request in adapter.requests[3:]] == [["toolu_a"], ["toolu_b"]]
 
 
 async def test_rewind_and_delete_kill_live_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1420,7 +1420,7 @@ async def test_stopping_a_job_still_delivers_its_result(tmp_path: Path, monkeypa
         await app.wait(await app.chat("build in the background"))
         [job] = app.jobs.jobs
 
-        stopped = await app.client.delete("/api/sessions/s1/jobs/toolu_bg")
+        stopped = await app.client.delete(f"/api/sessions/s1/jobs/{job.id}")
         assert stopped.status_code == 200, stopped.text
         assert stopped.json() == {"status": "ok"}
         await asyncio.wait_for(job.task, 5)
@@ -1428,14 +1428,14 @@ async def test_stopping_a_job_still_delivers_its_result(tmp_path: Path, monkeypa
         assert wake is not None
         await app.wait(wake)
 
-        again = await app.client.delete("/api/sessions/s1/jobs/toolu_bg")
-        unknown_job = await app.client.delete("/api/sessions/s1/jobs/toolu_missing")
-        unknown_session = await app.client.delete("/api/sessions/nope/jobs/toolu_bg")
+        again = await app.client.delete(f"/api/sessions/s1/jobs/{job.id}")
+        unknown_job = await app.client.delete("/api/sessions/s1/jobs/job_missing")
+        unknown_session = await app.client.delete(f"/api/sessions/nope/jobs/{job.id}")
 
     assert wake.wake is True
     assert wake.status == "completed"
     [persisted] = [
-        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_calls(m) == ["toolu_bg"]
     ]
     assert persisted["content"][0]["meta"]["job"]["exit_code"] < 0
     for response in (again, unknown_job, unknown_session):
@@ -1532,7 +1532,8 @@ async def test_result_arriving_while_a_request_holds_the_session_is_delivered_on
         # A first request installs this session's delivery.
         await app.wait(await app.chat("hi"))
         block = text_block(
-            "done", meta={"job": {"tool_use_id": "toolu_x", "name": "bash", "label": "x", "exit_code": 0}}
+            "done",
+            meta={"job": {"id": "job_x", "tool_use_id": "toolu_x", "name": "bash", "label": "x", "exit_code": 0}},
         )
 
         async with app.runs.subscribe() as events, app.runs.session_operation("s1"):
@@ -1543,7 +1544,7 @@ async def test_result_arriving_while_a_request_holds_the_session_is_delivered_on
         await asyncio.wait_for(notifying, 5)
 
         assert app.jobs.pending == [block]
-        assert app.jobs.in_flight == {"toolu_x"}
+        assert app.jobs.in_flight == {"job_x"}
         assert events.empty()
         assert await app.runs.get_active_run("s1") is None
 
@@ -1556,7 +1557,7 @@ async def test_wake_whose_message_fails_to_commit_suspends_and_keeps_the_result(
     append = TimelineStore.append_message
 
     async def failing_append(self: TimelineStore, session_id: str, message: ConversationMessage) -> None:
-        if _job_ids(message) == ["toolu_bg"]:
+        if _job_calls(message) == ["toolu_bg"]:
             raise OSError("disk full")
         await append(self, session_id, message)
 
@@ -1572,7 +1573,7 @@ async def test_wake_whose_message_fails_to_commit_suspends_and_keeps_the_result(
         await app.wait(wake)
         later = [events.get_nowait() for _ in range(events.qsize())]
         assert app.jobs.suspended is True
-        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+        assert _job_calls(build_message("user", app.jobs.pending)) == ["toolu_bg"]
         assert app.jobs.in_flight == set()
 
     assert wake.status == "failed"
@@ -1760,16 +1761,15 @@ async def test_log_route_streams_logs_and_follows_live_jobs(tmp_path: Path, monk
     async with _job_app(tmp_path, monkeypatch, _ScriptedAdapter()) as app:
         logs = app.store.tool_output_dir("s1")
         logs.mkdir(parents=True)
-        (logs / "bash-toolu_done.log").write_bytes(b"line 1\nline 2\n")
+        (logs / "bash-job_done.log").write_bytes(b"line 1\nline 2\n")
 
-        whole = await app.client.get("/api/sessions/s1/logs/toolu_done")
-        tail = await app.client.get("/api/sessions/s1/logs/toolu_done", params={"after": 7})
+        whole = await app.client.get("/api/sessions/s1/logs/job_done")
+        tail = await app.client.get("/api/sessions/s1/logs/job_done", params={"after": 7})
         refused = [
-            await app.client.get(path)
-            for path in ("/api/sessions/s1/logs/toolu_missing", "/api/sessions/s1/logs/bad.id")
+            await app.client.get(path) for path in ("/api/sessions/s1/logs/job_missing", "/api/sessions/s1/logs/bad.id")
         ]
 
-        live = logs / "bash-toolu_live.log"
+        live = logs / "bash-job_live.log"
         live.write_bytes(b"first\n")
         exited = asyncio.Event()
 
@@ -1778,6 +1778,7 @@ async def test_log_route_streams_logs_and_follows_live_jobs(tmp_path: Path, monk
 
         app.jobs.add(
             BackgroundJob(
+                id="job_live",
                 tool_use_id="toolu_live",
                 name="bash",
                 label="tail",
@@ -1787,7 +1788,7 @@ async def test_log_route_streams_logs_and_follows_live_jobs(tmp_path: Path, monk
                 pid=1,
             )
         )
-        following = asyncio.create_task(app.client.get("/api/sessions/s1/logs/toolu_live"))
+        following = asyncio.create_task(app.client.get("/api/sessions/s1/logs/job_live"))
         await asyncio.sleep(0.3)
         assert not following.done()
         with live.open("ab") as log:
@@ -1893,7 +1894,7 @@ async def test_a_stopped_background_agent_wakes_the_session_with_its_result(
         [job] = app.jobs.jobs
         listed = (await app.client.get("/api/sessions/s1")).json()["jobs"]
 
-        stopped = await app.client.delete("/api/sessions/s1/jobs/toolu_agent")
+        stopped = await app.client.delete(f"/api/sessions/s1/jobs/{job.id}")
         await asyncio.wait_for(job.task, 5)
         events = [published.get_nowait() for _ in range(published.qsize())]
         wake = await app.runs.get_active_run("s1")
@@ -1923,7 +1924,7 @@ async def test_a_stopped_background_agent_wakes_the_session_with_its_result(
     assert wake.wake is True
     assert wake.status == "completed"
     wake_input = adapter.requests["s1"][2][-1]
-    assert _job_ids(wake_input) == ["toolu_agent"]
+    assert _job_calls(wake_input) == ["toolu_agent"]
     [block] = wake_input["content"]
     assert block["type"] == "text"
     assert block["meta"]["job"]["status"] == "cancelled"

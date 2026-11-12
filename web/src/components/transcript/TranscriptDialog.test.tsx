@@ -216,6 +216,7 @@ describe("TranscriptDialog", () => {
     const { onStopJob } = renderDialog(childTranscript, {
       jobs: [
         {
+          id: "job-r",
           tool_use_id: "call-r",
           name: "agent",
           label: "Map the config",
@@ -229,7 +230,7 @@ describe("TranscriptDialog", () => {
     expect(screen.getByText("reviewer")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
-    expect(onStopJob).toHaveBeenCalledWith("call-r");
+    expect(onStopJob).toHaveBeenCalledWith("job-r");
     stream.end();
   });
 

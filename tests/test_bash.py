@@ -48,6 +48,10 @@ def _bash(ctx: ToolContext[CliDeps], command: str, *, timeout: int | None = None
     return ctx.call("bash", {"command": command, "timeout": timeout})
 
 
+def _logs(directory: str | Path) -> list[Path]:
+    return list(Path(directory).glob("bash-*.log"))
+
+
 class TestBash:
     def test_bash_simple_command(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -109,7 +113,7 @@ class TestBashTruncation:
             result = _bash(_ctx(tmpdir, tool_call_id="byte-limit"), f"python3 -c \"print('x' * 51200, end='{end}')\"")
 
             assert result.output == "x" * 51200
-            assert (Path(tmpdir) / "bash-byte-limit.log").exists() is logged
+            assert bool(_logs(tmpdir)) is logged
 
     def test_bash_large_output_truncated_by_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -124,7 +128,7 @@ class TestBashTruncation:
             assert "Use read with offset to inspect earlier lines" in result.output
             assert "line 3000" in result.output
             assert "Full output:" in result.output
-            log_file = tool_output / "bash-test-large.log"
+            [log_file] = _logs(tool_output)
             assert log_file.read_text().splitlines() == [f"line {i}" for i in range(1, 3001)]
 
     def test_bash_blank_lines_keep_accurate_line_count(self):
@@ -132,7 +136,8 @@ class TestBashTruncation:
             result = _bash(_ctx(tmpdir, tool_call_id="blank-lines"), "python3 -c \"print('\\n' * 3000, end='')\"")
 
             assert "last 2000 of 3000 lines" in result.output
-            assert (Path(tmpdir) / "bash-blank-lines.log").read_bytes() == b"\n" * 3000
+            [log_file] = _logs(tmpdir)
+            assert log_file.read_bytes() == b"\n" * 3000
 
     def test_bash_carriage_return_progress_counts_as_one_line(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -143,7 +148,7 @@ class TestBashTruncation:
 
             assert "Output truncated:" not in result.output
             assert result.output.endswith("\r2999")
-            assert not (Path(tmpdir) / "bash-progress.log").exists()
+            assert not _logs(tmpdir)
 
     def test_bash_multiline_output_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -156,7 +161,8 @@ class TestBashTruncation:
             assert "final output line" not in result.output
             assert "Use read to inspect omitted output" in result.output
             assert "099:" in result.output
-            assert (Path(tmpdir) / "bash-large-lines.log").stat().st_size > 50 * 1024
+            [log_file] = _logs(tmpdir)
+            assert log_file.stat().st_size > 50 * 1024
 
     def test_bash_long_final_line_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -166,7 +172,8 @@ class TestBashTruncation:
             assert "Use Bash byte-range commands to inspect the complete line" in result.output
             assert "Full output:" in result.output
             assert "�" not in result.output
-            assert (Path(tmpdir) / "bash-long-line.log").read_text() == "界" * 40000
+            [log_file] = _logs(tmpdir)
+            assert log_file.read_text() == "界" * 40000
 
     def test_bash_huge_line_before_short_tail_keeps_byte_tail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -355,6 +362,6 @@ class TestAgentBash:
         assert result.is_error is True
         assert "Output truncated:" in result.output
         assert "error: cancelled" in result.output
-        log_path = tmp_path / agent.session_id / "tool-output" / "bash-call-1.log"
+        [log_path] = _logs(tmp_path / agent.session_id / "tool-output")
         assert str(log_path) in result.output
         assert log_path.read_bytes() == b"x" * 60000

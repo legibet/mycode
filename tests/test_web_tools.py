@@ -130,10 +130,10 @@ async def test_fetch_truncates_the_head_and_saves_the_full_content(
     )
 
     result = await _call(tmp_path, WebConfig(), "webfetch", {"url": "https://example.test"})
-    spill = tmp_path / "tool-output" / "webfetch-call-1.md"
+    [spill] = (tmp_path / "tool-output").glob("webfetch-*.md")
 
     assert result.output.startswith(content[:10])
-    assert f"[Output truncated: Showing the first {limit}." in result.output
+    assert f"[Output truncated: Showing the first {limit}. Full output: {spill}." in result.output
     assert spill.read_text(encoding="utf-8") == content
 
 

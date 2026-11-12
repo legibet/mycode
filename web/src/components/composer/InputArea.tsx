@@ -76,7 +76,7 @@ interface InputAreaProps {
   onRemoveQueued: (id: string) => void;
   /** Background jobs running in the session. */
   jobs?: BackgroundJobInfo[];
-  onStopJob: (toolUseId: string) => void;
+  onStopJob: (jobId: string) => void;
   /** The session's rendered messages, where the jobs' calls are. */
   messages?: RenderMessage[];
   supportsImages?: boolean;

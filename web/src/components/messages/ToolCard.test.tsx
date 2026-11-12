@@ -106,7 +106,7 @@ describe("ToolCard background bash", () => {
         else controller.error(new TypeError("network"));
       },
     });
-    const url = "/api/sessions/s1/logs/call-1";
+    const url = "/api/sessions/s1/logs/job-1";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const requested = String(input);
       if (requested === `${url}?after=0`) return new Response(first);
@@ -116,7 +116,9 @@ describe("ToolCard background bash", () => {
       throw new Error(`Unexpected fetch: ${requested}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(withLinks(bash({ background: true, pid: 1, running: true }), fakeLinks()));
+    render(
+      withLinks(bash({ background: true, pid: 1, job_id: "job-1", running: true }), fakeLinks()),
+    );
 
     expect(fetchMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { expanded: false }));

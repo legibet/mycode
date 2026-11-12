@@ -151,7 +151,7 @@ describe("messages", () => {
             type: "tool_result",
             tool_use_id: "call-1",
             output: "Started in background (pid 42): pytest\nLog: /tmp/job.log",
-            metadata: { background: true, pid: 42, log: "/tmp/job.log" },
+            metadata: { background: true, pid: 42, log: "/tmp/job.log", job_id: "job-1" },
             is_error: false,
           },
         ],
@@ -165,6 +165,7 @@ describe("messages", () => {
             text: "Background bash finished (pid 42, exit code 1): pytest\nLog: /tmp/job.log\n\nFAILED test_a\n\n1 failed",
             meta: {
               job: {
+                id: "job-1",
                 tool_use_id: "call-1",
                 name: "bash",
                 label: "pytest",
@@ -186,6 +187,7 @@ describe("messages", () => {
       jobs: [
         {
           name: "bash",
+          id: "job-1",
           tool_use_id: "call-1",
           label: "pytest",
           command: "pytest",
@@ -204,6 +206,7 @@ describe("messages", () => {
       background: true,
       pid: 42,
       log: "/tmp/job.log",
+      job_id: "job-1",
       exit_code: 1,
       job_output: "FAILED test_a\n\n1 failed",
     });
@@ -230,7 +233,7 @@ describe("messages", () => {
           type: "tool_result",
           tool_use_id: "call-1",
           output: "Started in background (pid 42): pytest\nLog: /tmp/job.log",
-          metadata: { background: true, pid: 42, log: "/tmp/job.log" },
+          metadata: { background: true, pid: 42, log: "/tmp/job.log", job_id: "job-1" },
           is_error: false,
         },
       ],
@@ -252,6 +255,7 @@ describe("messages", () => {
       background: true,
       pid: 42,
       log: "/tmp/job.log",
+      job_id: "job-1",
       running: true,
     });
     expect(again.runtime?.metadata).toBe(first.runtime?.metadata);
@@ -271,6 +275,7 @@ describe("messages", () => {
             text: "Background bash finished (pid 42, exit code -15): pytest\nLog: /tmp/job.log\n\n",
             meta: {
               job: {
+                id: "job-1",
                 tool_use_id: "call-1",
                 name: "bash",
                 label: "pytest",
@@ -288,6 +293,7 @@ describe("messages", () => {
       background: true,
       pid: 42,
       log: "/tmp/job.log",
+      job_id: "job-1",
       exit_code: -15,
       job_output: "",
     });
@@ -313,6 +319,7 @@ describe("messages", () => {
             text: `Background bash finished (pid 42, exit code 0): ${command.slice(0, 77)}...\n\nok`,
             meta: {
               job: {
+                id: "job-1",
                 tool_use_id: "call-1",
                 name: "bash",
                 label: `${command.slice(0, 77)}...`,
@@ -362,6 +369,7 @@ describe("messages", () => {
         text: "Agent finished: Map the config\n\nConfig loads from **two** files.",
         meta: {
           job: {
+            id: "job-a",
             tool_use_id: "call-a",
             name: "agent",
             label: "Map the config",
@@ -404,6 +412,7 @@ describe("messages", () => {
       jobs: [
         {
           name: "agent",
+          id: "job-a",
           tool_use_id: "call-a",
           label: "Map the config",
           session_id: "call-a",
@@ -502,6 +511,7 @@ describe("messages", () => {
             text: "Background bash finished (pid 7, exit code 0): make\nLog: /tmp/make.log\n\nok",
             meta: {
               job: {
+                id: "job-2",
                 tool_use_id: "call-2",
                 name: "bash",
                 label: "make",
@@ -521,7 +531,16 @@ describe("messages", () => {
     const [, , , user, reply] = renderMessages.map((m) => (isChatMessage(m) ? m : null));
     expect(marker).toMatchObject({
       kind: "job-marker",
-      jobs: [{ tool_use_id: "call-2", label: "make", command: "make", exit_code: 0, output: "ok" }],
+      jobs: [
+        {
+          id: "job-2",
+          tool_use_id: "call-2",
+          label: "make",
+          command: "make",
+          exit_code: 0,
+          output: "ok",
+        },
+      ],
     });
     expect(user?.role).toBe("user");
     expect(user?.content).toMatchObject([{ type: "text", text: "also lint" }]);

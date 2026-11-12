@@ -536,7 +536,15 @@ class TestTurnRenderer:
 def _job_block(output: str, *, exit_code: int = 1) -> TextBlock:
     return text_block(
         f"Background bash finished (pid 1, exit code {exit_code}): pytest -q\nLog: /x.log\n\n{output}",
-        meta={"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": exit_code}},
+        meta={
+            "job": {
+                "id": "job_1",
+                "tool_use_id": "toolu_1",
+                "name": "bash",
+                "label": "pytest -q",
+                "exit_code": exit_code,
+            }
+        },
     )
 
 
@@ -578,6 +586,7 @@ class TestJobLines:
 
 def _agent_job_block(reply: str, *, status: str = "completed") -> TextBlock:
     job = {
+        "id": "job_1",
         "tool_use_id": "toolu_1",
         "name": "agent",
         "label": "Scan the tests",

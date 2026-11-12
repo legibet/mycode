@@ -13,6 +13,7 @@ const LONG_COMMAND = `for i in $(seq 1 300); do echo "tick $i of the long runnin
 
 const started = new Date().toISOString();
 const bashJob: BackgroundJobInfo = {
+  id: "job-1",
   tool_use_id: "call-1",
   name: "bash",
   label: `${LONG_COMMAND.slice(0, 77)}...`,
@@ -20,6 +21,7 @@ const bashJob: BackgroundJobInfo = {
   started_at: started,
 };
 const lintJob: BackgroundJobInfo = {
+  id: "job-2",
   tool_use_id: "call-2",
   name: "bash",
   label: "pnpm lint",
@@ -27,6 +29,7 @@ const lintJob: BackgroundJobInfo = {
   started_at: started,
 };
 const agentJob: BackgroundJobInfo = {
+  id: "job-r",
   tool_use_id: "call-r",
   name: "agent",
   label: "Map the config",
@@ -56,7 +59,7 @@ function history(exitCode?: number) {
           type: "tool_result",
           tool_use_id: "call-1",
           output: "Started in background (pid 7)",
-          metadata: { background: true, pid: 7 },
+          metadata: { background: true, pid: 7, job_id: "job-1" },
           is_error: false,
         },
       ],
@@ -70,7 +73,13 @@ function history(exitCode?: number) {
           type: "text",
           text: `Background bash finished (pid 7, exit code ${exitCode})\n\ntick 300`,
           meta: {
-            job: { tool_use_id: "call-1", name: "bash", label: "for i", exit_code: exitCode },
+            job: {
+              id: "job-1",
+              tool_use_id: "call-1",
+              name: "bash",
+              label: "for i",
+              exit_code: exitCode,
+            },
           },
         },
       ],
@@ -141,7 +150,7 @@ describe("InFlightCard background jobs", () => {
     const agentRow = within(list).getByText("Map the config").closest("li")!;
     await user.click(within(agentRow).getByRole("button", { name: "Stop" }));
 
-    expect(onStopJob).toHaveBeenCalledWith("call-r");
+    expect(onStopJob).toHaveBeenCalledWith("job-r");
   });
 
   it("opens an agent's transcript from its row and closes the panel", async () => {

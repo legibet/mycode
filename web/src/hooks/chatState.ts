@@ -87,7 +87,7 @@ export type ChatAction =
   | { type: "apply_event"; event: RunEvent; replay?: boolean }
   | { type: "rollback" }
   | { type: "job_started"; job: BackgroundJobInfo }
-  | { type: "job_finished"; toolUseId: string }
+  | { type: "job_finished"; id: string }
   | { type: "add_pending"; list: keyof PendingInputs; item: PendingInput }
   | { type: "move_pending"; id: string; to: keyof PendingInputs }
   | { type: "remove_pending"; id: string }
@@ -331,7 +331,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "job_started": {
       const { job } = action;
-      if (state.jobs.some((item) => item.tool_use_id === job.tool_use_id)) {
+      if (state.jobs.some((item) => item.id === job.id)) {
         return state;
       }
       return { ...state, jobs: [...state.jobs, job] };
@@ -340,7 +340,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "job_finished":
       return {
         ...state,
-        jobs: state.jobs.filter((job) => job.tool_use_id !== action.toolUseId),
+        jobs: state.jobs.filter((job) => job.id !== action.id),
       };
 
     case "rollback": {

@@ -895,7 +895,7 @@ class TestModelSwitch:
 def _job_block(tool_use_id: str = "toolu_1") -> TextBlock:
     return text_block(
         "Background bash finished (pid 1, exit code 1): pytest -q\nLog: /x.log\n\nline a\nline b",
-        meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "pytest -q", "exit_code": 1}},
+        meta={"job": {"id": "job_1", "tool_use_id": tool_use_id, "name": "bash", "label": "pytest -q", "exit_code": 1}},
     )
 
 
@@ -1090,6 +1090,7 @@ class TestBackgroundJobs:
             tasks.append(task)
             old_jobs.add(
                 BackgroundJob(
+                    id="job_1",
                     tool_use_id="toolu_1",
                     name="bash",
                     label="sleep 100",
@@ -1176,6 +1177,7 @@ class TestAgentsCommand:
 
         chat.jobs.add(
             BackgroundJob(
+                id="job_run",
                 tool_use_id="toolu_run",
                 name="agent",
                 label="Watch the build",

@@ -137,7 +137,7 @@ function AppContent() {
     const sessionId = encodeURIComponent(activeSession.id);
     return {
       openAgent: (childId) => setTranscript({ sessionId: activeSession.id, childId }),
-      logUrl: (toolUseId) => `/api/sessions/${sessionId}/logs/${encodeURIComponent(toolUseId)}`,
+      logUrl: (jobId) => `/api/sessions/${sessionId}/logs/${encodeURIComponent(jobId)}`,
     };
   }, [activeSession.id]);
 

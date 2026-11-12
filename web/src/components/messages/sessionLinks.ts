@@ -9,7 +9,7 @@ import { createContext, use } from "react";
 export interface SessionLinks {
   openAgent: (childId: string) => void;
   /** Absent in a transcript: a subagent runs no background commands. */
-  logUrl?: (toolUseId: string) => string;
+  logUrl?: (jobId: string) => string;
 }
 
 export const SessionLinksContext = createContext<SessionLinks | null>(null);

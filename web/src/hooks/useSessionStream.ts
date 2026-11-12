@@ -200,13 +200,13 @@ export function useSessionStream({
 
   useEffect(() => stop, [stop]);
 
-  const runningJobIds = useMemo(
+  const runningJobCalls = useMemo(
     () => new Set(chatState.jobs.map((job) => job.tool_use_id)),
     [chatState.jobs],
   );
   const messages = useMemo(
-    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById, runningJobIds),
-    [chatState.rawMessages, chatState.toolRuntimeById, runningJobIds],
+    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById, runningJobCalls),
+    [chatState.rawMessages, chatState.toolRuntimeById, runningJobCalls],
   );
 
   return {

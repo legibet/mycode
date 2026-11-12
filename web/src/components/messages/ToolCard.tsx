@@ -522,7 +522,6 @@ export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
 });
 
 function ToolCallCard({
-  id,
   name,
   args,
   output,
@@ -539,7 +538,7 @@ function ToolCallCard({
   const body =
     name === "bash" ? (
       (expanded: boolean) => (
-        <BashBody id={id} args={args} metadata={metadata} display={display} open={expanded} />
+        <BashBody args={args} metadata={metadata} display={display} open={expanded} />
       )
     ) : name === "read" || name === "webfetch" || name === "websearch" ? (
       <ToolSurface body={display} />
@@ -566,13 +565,11 @@ function ToolCallCard({
 
 /** A bash call's body: the command over its output. */
 function BashBody({
-  id,
   args,
   metadata,
   display,
   open,
 }: {
-  id: string;
   args: ToolArgs;
   metadata: ToolMeta;
   display: string;
@@ -581,7 +578,12 @@ function BashBody({
   const command = asString(args?.["command"]);
   if (metadata?.["background"] !== true) return <BashSurface command={command} output={display} />;
   return (
-    <BackgroundBashBody id={id} command={command} jobOutput={getJobOutput(metadata)} open={open} />
+    <BackgroundBashBody
+      jobId={asString(metadata["job_id"])}
+      command={command}
+      jobOutput={getJobOutput(metadata)}
+      open={open}
+    />
   );
 }
 
@@ -592,18 +594,20 @@ function BashBody({
  * in view when the job ends.
  */
 function BackgroundBashBody({
-  id,
+  jobId,
   command,
   jobOutput,
   open,
 }: {
-  id: string;
+  jobId: string;
   command: string;
   jobOutput: string | null;
   open: boolean;
 }) {
   const links = useSessionLinks();
-  const log = useLiveLog(jobOutput === null && open && links?.logUrl ? links.logUrl(id) : null);
+  const log = useLiveLog(
+    jobOutput === null && open && jobId && links?.logUrl ? links.logUrl(jobId) : null,
+  );
   return (
     <BashSurface command={command} output={jobOutput ?? <LiveLogText log={log} />} followTail />
   );

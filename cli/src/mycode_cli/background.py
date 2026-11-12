@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BackgroundJob:
+    # Generated for each job; the provider's call id is not an identity.
+    id: str
+    # The call that started the job.
     tool_use_id: str
     # The tool that started the job: ``bash`` or ``agent``.
     name: str
@@ -34,6 +37,7 @@ class BackgroundJob:
 
     def info(self) -> dict[str, Any]:
         info: dict[str, Any] = {
+            "id": self.id,
             "tool_use_id": self.tool_use_id,
             "name": self.name,
             "label": self.label,
@@ -85,11 +89,11 @@ class BackgroundJobs:
 
         return next((job for job in self.jobs if job.session_id == session_id), None)
 
-    def kill(self, tool_use_id: str) -> bool:
+    def kill(self, job_id: str) -> bool:
         """Stop a live job; its result is still delivered."""
 
         for job in self.jobs:
-            if job.tool_use_id == tool_use_id:
+            if job.id == job_id:
                 job.kill()
                 return True
         return False
@@ -148,10 +152,10 @@ class BackgroundJobs:
 
 
 def job_id(block: ContentBlock) -> str | None:
-    """Return the ``tool_use_id`` of a job notification block, or ``None`` for other blocks."""
+    """Return the job id of a job notification block, or ``None`` for other blocks."""
 
     job = block.get("meta", {}).get("job")
-    return job["tool_use_id"] if job else None
+    return job["id"] if job else None
 
 
 def is_job_message(message: ConversationMessage) -> bool:

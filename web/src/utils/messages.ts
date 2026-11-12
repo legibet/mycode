@@ -560,6 +560,7 @@ function jobResult(
   startInput: (toolUseId: string) => Record<string, unknown> | undefined,
 ): JobResult {
   const job = isObject(block.meta?.["job"]) ? block.meta["job"] : {};
+  const id = typeof job["id"] === "string" ? job["id"] : "";
   const toolUseId = typeof job["tool_use_id"] === "string" ? job["tool_use_id"] : "";
   const label = typeof job["label"] === "string" ? job["label"] : "";
   // The text is the header lines, a blank line, then the output.
@@ -567,6 +568,7 @@ function jobResult(
   if (job["name"] === "agent") {
     return {
       name: "agent",
+      id,
       tool_use_id: toolUseId,
       label,
       session_id: typeof job["session_id"] === "string" ? job["session_id"] : "",
@@ -577,6 +579,7 @@ function jobResult(
   const command = startInput(toolUseId)?.["command"];
   return {
     name: "bash",
+    id,
     tool_use_id: toolUseId,
     label,
     command: typeof command === "string" && command ? command : label,

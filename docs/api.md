@@ -101,11 +101,11 @@ A long-lived SSE stream of run and background command lifecycle events across ev
 `run` is the same payload as `active_run` and the run SSE contract is unchanged. A wake run is an ordinary chat run whose user message holds only job notification blocks. Agent runs are announced too, with `session_id` `<parent id>/<child id>` and `run.kind: "agent"`; a client showing the parent session ignores them, and a view of the child uses `run_started` to attach to a turn that started after it loaded. `job` is `BackgroundJobInfo`, the same shape as the session snapshot's `jobs`:
 
 ```json
-{"tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "started_at": "...", "pid": 12345}
-{"tool_use_id": "toolu_y", "name": "agent", "label": "Find the config loader", "started_at": "...", "session_id": "<child id>"}
+{"id": "<job id>", "tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "started_at": "...", "pid": 12345}
+{"id": "<job id>", "tool_use_id": "toolu_y", "name": "agent", "label": "Find the config loader", "started_at": "...", "session_id": "<child id>"}
 ```
 
-`name` is the tool that started the job; `pid` is present for `bash`, `session_id` (the child id) for `agent`. Job events of a session's background agents carry the parent's `session_id`. `job_finished` is sent once the job's result has been handed over, so the wake run it triggers is announced before it; a job killed by `rewind_to`, delete or shutdown is announced the same way.
+`id` identifies the job in the routes below. `tool_use_id` is the call that started the job and `name` that call's tool; `pid` is present for `bash`, `session_id` (the child id) for `agent`. Job events of a session's background agents carry the parent's `session_id`. `job_finished` is sent once the job's result has been handed over, so the wake run it triggers is announced before it; a job killed by `rewind_to`, delete or shutdown is announced the same way.
 
 ### `GET /api/runs/{run_id}/stream?after=0`
 
@@ -398,7 +398,7 @@ Load session with full message history. If the session has an active run, overla
   "active_run": {...} | null,
   "pending_events": [...],
   "pending": {"steers": [...], "queue": [...]},
-  "jobs": [{"tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "started_at": "...", "pid": 12345}]
+  "jobs": [{"id": "<job id>", "tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "started_at": "...", "pid": 12345}]
 }
 ```
 
@@ -420,9 +420,9 @@ Assistant and compact messages return their persisted per-request `meta.usage` a
 
 Delete session. Returns `409` if session has a running task, or if another process has it open or holds one of its subagents' locks (`{"detail": {"message": "..."}}`). Kills the session's background jobs first.
 
-### `DELETE /api/sessions/{id}/jobs/{tool_use_id}`
+### `DELETE /api/sessions/{id}/jobs/{job_id}`
 
-Kill one running background job: a command, or a background agent's turn. Its result is still delivered to the model like any other completion, with the signal's exit code or `status: "cancelled"`, and `job_finished` follows. Returns `404` when the session has no such running job; `tool_use_id` is validated like `child_id`.
+Kill one running background job: a command, or a background agent's turn. Its result is still delivered to the model like any other completion, with the signal's exit code or `status: "cancelled"`, and `job_finished` follows. Returns `404` when the session has no such running job; `job_id` is validated like `child_id`.
 
 ### `GET /api/sessions/{id}/agents/{child_id}`
 
@@ -447,9 +447,9 @@ Load a subagent session (`docs/sessions.md`, Subagent sessions) in the shape of 
 - `child_id` must match `^[A-Za-z0-9_-]{1,128}$` (`422` otherwise); `404` when the child or its `agent.json` does not exist
 - A child's run can start after its call names it, so a client that opens the child first attaches on `run_started` for `<id>/<child_id>`
 
-### `GET /api/sessions/{id}/logs/{tool_use_id}?after=0`
+### `GET /api/sessions/{id}/logs/{job_id}?after=0`
 
-Stream the bash log `bash-<tool_use_id>.log` (`docs/tools.md`, bash) of the session's `tool-output/` as `text/plain`, starting at byte `after` (`>= 0`). While a background job with that `tool_use_id` runs in the session, the response follows the file; once the job is gone and the file is read to its end, or at once when no job runs, it ends. A client that loses the connection reconnects with `after` set to the bytes it has. `404` when the log does not exist, which includes foreground calls whose output was not truncated. `tool_use_id` is validated like `child_id`.
+Stream the log of a background command, `bash-<job_id>.log` in the session's `tool-output/` (`docs/tools.md`, bash), as `text/plain`, starting at byte `after` (`>= 0`). While the job runs in the session, the response follows the file; once the job is gone and the file is read to its end, or at once when the job is not running, it ends. A client that loses the connection reconnects with `after` set to the bytes it has. `404` when the log does not exist. `job_id` is validated like `child_id`.
 
 ## Workspaces
 
@@ -569,5 +569,5 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `jobs_for(session_id)` returns the session's `BackgroundJobs` registry (`cli/src/mycode_cli/background.py`), which holds its background commands and agents. It outlives runs: the agent is rebuilt per request, the registry is not. A finished background job appends its notification block to the registry and calls the deliver callback the last `POST /api/chat` installed. Under the session operation, the callback steers the block into an active chat run, queues it when the run refuses steers, starts a wake run (`RunState.wake`) when the session is idle and not suspended, and does nothing during a compact run or while a chat run is closing. The results are taken right before the run starts; a wake whose preparation fails, including a session another process has open, sets `suspended` and leaves nothing in flight
 - A run frees the session's active slot and reconciles the registry in the same step (`_release_session`), at the chat loop's final take or when the run finishes, because a free slot lets a wake start and take the pending results. The reconcile checks `agent.messages`, the committed records: blocks found there are dropped, the rest return to pending. A cancelled run, or a wake run that committed nothing, sets `suspended`, which holds wakes until the next `POST /api/chat`; a result that arrived during a wake and missed it is not a reason to suspend. Once the run has finished, anything still pending is offered again through `deliver_pending`, which logs a failing callback and keeps the blocks, so a completion during a compact run is delivered when the compact ends
 - Every run's start and end is published to `GET /api/events` subscribers as `run_started` and `run_finished`; the registry's `on_change` publishes `job_started` and `job_finished` the same way
-- `live_jobs(session_id)` describes the running jobs for the session snapshot; `has_job(session_id, tool_use_id)` tells the log route whether to follow; `kill_job(session_id, tool_use_id)` kills one and leaves its drain task to deliver the result
+- `live_jobs(session_id)` describes the running jobs for the session snapshot; `has_job(session_id, job_id)` tells the log route whether to follow; `kill_job(session_id, job_id)` kills one and leaves its drain task to deliver the result
 - `close_jobs(session_id)` kills the session's background jobs; `aclose()` suspends every registry, cancels the runs, then closes every registry

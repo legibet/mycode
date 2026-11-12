@@ -751,8 +751,9 @@ async def bash_tool(
     if bash is None:
         return ToolExecutionResult(output="error: bash not found on PATH", is_error=True)
 
-    tool_use_id = ctx.tool_call_id or "call"
-    log_path = ctx.deps.tool_output_dir / f"bash-{tool_use_id}.log"
+    # Names the log. A background command's job takes the same id, so the log is found by its job.
+    job_id = uuid4().hex
+    log_path = ctx.deps.tool_output_dir / f"bash-{job_id}.log"
     output = _BashOutputAccumulator(log_path)
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -779,9 +780,13 @@ async def bash_tool(
         _kill_proc_tree(proc)
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     label = _command_label(command)
-    task = asyncio.create_task(_finish_background(jobs, proc, output, tool_use_id=tool_use_id, label=label))
+    tool_use_id = ctx.tool_call_id or ""
+    task = asyncio.create_task(
+        _finish_background(jobs, proc, output, job_id=job_id, tool_use_id=tool_use_id, label=label)
+    )
     jobs.add(
         BackgroundJob(
+            id=job_id,
             tool_use_id=tool_use_id,
             name="bash",
             label=label,
@@ -793,7 +798,7 @@ async def bash_tool(
     )
     return ToolExecutionResult(
         output=f"Started in background (pid {proc.pid}): {label}\nLog: {log_path}",
-        metadata={"background": True, "pid": proc.pid, "log": str(log_path)},
+        metadata={"background": True, "pid": proc.pid, "log": str(log_path), "job_id": job_id},
     )
 
 
@@ -873,6 +878,7 @@ async def _finish_background(
     proc: asyncio.subprocess.Process,
     output: _BashOutputAccumulator,
     *,
+    job_id: str,
     tool_use_id: str,
     label: str,
 ) -> None:
@@ -908,7 +914,15 @@ async def _finish_background(
     await jobs.notify(
         text_block(
             f"{header}\n\n{body}",
-            meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": label, "exit_code": exit_code}},
+            meta={
+                "job": {
+                    "id": job_id,
+                    "tool_use_id": tool_use_id,
+                    "name": "bash",
+                    "label": label,
+                    "exit_code": exit_code,
+                }
+            },
         )
     )
 

@@ -351,7 +351,9 @@ async def test_load_totals_skips_records_without_usage_or_cost(store: SessionSto
 
 
 def test_display_text_skips_payload_blocks() -> None:
-    job: BlockMeta = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
+    job: BlockMeta = {
+        "job": {"id": "job_1", "tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}
+    }
     message = build_message(
         "user",
         [
