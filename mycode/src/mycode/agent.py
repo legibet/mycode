@@ -27,7 +27,6 @@ from mycode.compact import (
     NothingToCompactError,
     build_marker,
     find_keep_from,
-    has_compactable_history,
     project,
     should_compact,
     summary_text,
@@ -579,10 +578,10 @@ class Agent:
         summary prompt, so providers can reuse the cached prefix.
         """
 
-        if not has_compactable_history(self.messages):
+        keep_from = find_keep_from(self.messages, self.context_window)
+        if keep_from is None:
             raise NothingToCompactError("nothing to compact")
 
-        keep_from = find_keep_from(self.messages, self.context_window)
         earlier = project(self.messages[:keep_from], self.transcript_path)
         request = self._build_request([*earlier, user_text_message(COMPACT_SUMMARY_PROMPT)])
         response: ConversationMessage | None = None

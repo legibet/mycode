@@ -203,9 +203,9 @@ Visible state preserves pre-compact history and `compact` markers. When the agen
 - the marker's tail, `messages[keep_from:marker]`
 - the messages after the marker
 
-Everything else before the marker, including earlier markers and their tails, is left out. The message after the summary decides the head's shape:
+Everything else before the marker, including earlier markers and their tails, is left out. The tail holds at least one step, and its first message decides the head's shape:
 
-- nothing, or an `assistant` message → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
+- an `assistant` message → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
 - a `user` message → a short synthetic `assistant` ack (`Acknowledged.`) is inserted after the summary to preserve user/assistant alternation
 
 Provider adapters receive this view as `ProviderRequest.messages`. The visible list seen by UIs and used by rewind never contains these synthetic substitutes.

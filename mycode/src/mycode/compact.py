@@ -127,41 +127,40 @@ def _starts_step(message: ConversationMessage) -> bool:
     return message["role"] == "assistant" or all(block["type"] != "tool_result" for block in message["content"])
 
 
-def _newest_step(messages: list[ConversationMessage]) -> int | None:
-    """Index where the newest step after the latest marker starts, or ``None`` when no step follows the marker."""
+def _step_to_keep(messages: list[ConversationMessage]) -> int | None:
+    """Index where the newest step after the latest marker starts, or ``None`` when there is nothing to compact.
 
-    for i in range(len(messages) - 1, _latest_marker(messages), -1):
-        if _starts_step(messages[i]):
-            return i
+    A compaction keeps that step and summarizes the non-empty messages before
+    it that the latest summary does not cover.
+    """
+
+    marker = _latest_marker(messages)
+    newest = next((i for i in range(len(messages) - 1, marker, -1) if _starts_step(messages[i])), None)
+    if newest is None:
+        return None
+    # The latest summary covers the messages before its tail.
+    start = 0 if marker < 0 else messages[marker]["meta"]["keep_from"]
+    if any(message["content"] for message in messages[start:newest] if message["role"] != "compact"):
+        return newest
     return None
 
 
 def has_compactable_history(messages: list[ConversationMessage]) -> bool:
-    """True when a compaction has something to summarize.
+    """True when a compaction has something to summarize."""
 
-    A compaction keeps the newest step after the latest marker and summarizes
-    the non-empty messages before it that the latest summary does not cover.
-    """
-
-    newest = _newest_step(messages)
-    if newest is None:
-        return False
-    marker = _latest_marker(messages)
-    # The latest summary covers the messages before its tail.
-    start = 0 if marker < 0 else messages[marker]["meta"]["keep_from"]
-    return any(message["content"] for message in messages[start:newest] if message["role"] != "compact")
+    return _step_to_keep(messages) is not None
 
 
-def find_keep_from(messages: list[ConversationMessage], context_window: int) -> int:
-    """Return the index where the verbatim tail starts; ``len(messages)`` when no step follows the latest marker.
+def find_keep_from(messages: list[ConversationMessage], context_window: int) -> int | None:
+    """Return the index where the verbatim tail starts, or ``None`` when there is nothing to compact.
 
     The tail is the newest step, whatever its size, plus the earlier steps
     that fit the token budget. The summary covers the messages before the tail.
     """
 
-    newest = _newest_step(messages)
+    newest = _step_to_keep(messages)
     if newest is None:
-        return len(messages)
+        return None
     # A tenth of the window keeps summary plus tail below the threshold on small windows.
     budget = min(TAIL_TOKENS, context_window // 10)
     tokens = sum(_estimate_tokens(message) for message in messages[newest:])
@@ -226,8 +225,9 @@ def project(messages: list[ConversationMessage], transcript_path: str | None) ->
 
     keep_from = messages[marker]["meta"]["keep_from"]
     following = [*messages[keep_from:marker], *messages[marker + 1 :]]
-    # A user message after the summary needs an assistant turn before it, so roles alternate.
-    continue_now = not following or following[0]["role"] == "assistant"
+    # The tail holds at least one step. When it starts with a user message,
+    # an assistant turn goes before it, so roles alternate.
+    continue_now = following[0]["role"] == "assistant"
 
     parts = [CONTINUATION_HEADER, flatten_message_text(messages[marker])]
     if transcript_path:

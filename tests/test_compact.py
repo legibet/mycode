@@ -115,48 +115,20 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("after", "expected_roles", "expected_texts", "continues_directly"),
-    [
-        pytest.param([], ["user"], [], True, id="nothing-after"),
-        pytest.param([_reply("next")], ["user", "assistant"], ["next"], True, id="assistant-after"),
-        pytest.param(
-            [_user("follow-up")],
-            ["user", "assistant", "user"],
-            ["Acknowledged.", "follow-up"],
-            False,
-            id="user-after",
-        ),
-    ],
-)
-def test_projection_keeps_role_order_after_summary(
-    after: list[ConversationMessage],
-    expected_roles: list[str],
-    expected_texts: list[str],
-    continues_directly: bool,
-) -> None:
-    projected = project([_user("early"), _reply("ok"), _marker(keep_from=2), *after], None)
-
-    assert _roles(projected) == expected_roles
-    summary = projected[0]["content"][0]
-    assert summary["type"] == "text"
-    assert "summary" in summary["text"]
-    assert ("Resume directly" in summary["text"]) is continues_directly
-    assert [message["content"] for message in projected[1:]] == [[text_block(text)] for text in expected_texts]
-
-
 def test_projection_uses_latest_summary_and_transcript_hint() -> None:
     messages = [
         _user("very old"),
+        _reply("a"),
         _marker("EARLIER_SUMMARY", keep_from=1),
-        _reply("mid"),
-        _marker("LATEST_SUMMARY", keep_from=3),
-        _reply("next"),
+        _user("mid"),
+        _reply("b"),
+        _marker("LATEST_SUMMARY", keep_from=4),
+        _user("next"),
     ]
 
     projected = project(messages, "/sessions/s1/messages.jsonl")
 
-    assert _roles(projected) == ["user", "assistant"]
+    assert _roles(projected) == ["user", "assistant", "user"]
     summary = projected[0]["content"][0]
     assert summary["type"] == "text"
     assert "LATEST_SUMMARY" in summary["text"]
