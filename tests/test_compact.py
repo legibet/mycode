@@ -228,7 +228,7 @@ def test_tail_keeps_an_unanswered_prompt_larger_than_the_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_acompact_sends_the_normal_request_plus_one_message_and_persists_marker(tmp_path: Path) -> None:
+async def test_acompact_sends_the_request_cut_at_the_tail_plus_one_message_and_persists_marker(tmp_path: Path) -> None:
     agent = Agent(
         model="m",
         provider="anthropic",
@@ -257,10 +257,12 @@ async def test_acompact_sends_the_normal_request_plus_one_message_and_persists_m
     assert marker["content"] == [text_block("THE_SUMMARY")]
 
     # Same system, tools, effort and max_tokens as a normal request, so the
-    # provider can reuse the cached prefix; only one user message is added.
+    # provider can reuse the cached prefix. The messages stop where the tail
+    # starts, and one user message is added.
     chat_request, summary_request = adapter.requests
     assert replace(summary_request, messages=[]) == replace(chat_request, messages=[])
-    assert summary_request.messages[:-1] == agent.messages[:2]
+    assert marker["meta"]["keep_from"] == 1
+    assert summary_request.messages[:-1] == agent.messages[:1]
     assert summary_request.messages[-1]["role"] == "user"
     assert [block["type"] for block in summary_request.messages[-1]["content"]] == ["text"]
 
@@ -275,9 +277,18 @@ async def test_acompact_sends_the_normal_request_plus_one_message_and_persists_m
 
 
 @pytest.mark.asyncio
-async def test_acompact_without_new_context_raises_before_provider_request(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "history",
+    [
+        pytest.param([_user("hi"), _marker()], id="nothing-after-the-marker"),
+        pytest.param([_user("hi")], id="only-the-newest-step"),
+    ],
+)
+async def test_acompact_with_nothing_to_summarize_raises_before_provider_request(
+    tmp_path: Path, history: list[ConversationMessage]
+) -> None:
     agent = make_agent(tmp_path)
-    agent.messages.extend([_user("hi"), _marker()])
+    agent.messages.extend(history)
 
     adapter = _Adapter()
     with patch("mycode.agent.get_provider_adapter", return_value=adapter), pytest.raises(NothingToCompactError):
@@ -299,7 +310,7 @@ async def test_acompact_rejects_unusable_summary_and_persists_nothing(
     tmp_path: Path, response: ConversationMessage
 ) -> None:
     agent = Agent(model="m", provider="anthropic", session_dir=tmp_path, tools=[dump])
-    agent.messages.append(_user("hi"))
+    agent.messages.extend([_user("hi"), _reply("hello")])
 
     with (
         patch("mycode.agent.get_provider_adapter", return_value=_Adapter(response)),
@@ -308,14 +319,14 @@ async def test_acompact_rejects_unusable_summary_and_persists_nothing(
         await agent.acompact()
 
     # No marker, and the summary response's tool call was not executed.
-    assert _roles(agent.messages) == ["user"]
+    assert _roles(agent.messages) == ["user", "assistant"]
     assert not SessionStore(data_dir=tmp_path).session_exists(agent.session_id)
 
 
 @pytest.mark.asyncio
 async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
-    agent.messages.append(_user("hi"))
+    agent.messages.extend([_user("hi"), _reply("hello")])
     messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
 
     class _HangThenSummary:
@@ -477,7 +488,7 @@ async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_automatic_and_manual_compaction_keep_the_tail() -> None:
+async def test_compaction_summarizes_the_messages_before_the_tail_and_keeps_the_tail() -> None:
     agent = Agent(model="m", provider="anthropic", context_window=100_000, tools=[dump])
     adapter = _Adapter(
         _call("c1", 60_000, usage={"total_tokens": 10_000}),
@@ -492,6 +503,7 @@ async def test_automatic_and_manual_compaction_keep_the_tail() -> None:
 
     # The first step is over the budget, so the tail is the second step.
     assert agent.messages[5]["meta"]["keep_from"] == 3
+    assert adapter.requests[2].messages[:-1] == agent.messages[:3]
     after = adapter.requests[3].messages
     assert _roles(after) == ["user", "assistant", "user"]
     assert after[1:] == agent.messages[3:5]
@@ -500,8 +512,10 @@ async def test_automatic_and_manual_compaction_keep_the_tail() -> None:
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         marker = await agent.acompact()
 
-    # Only the answer follows the automatic marker, and it stays after the manual summary.
+    # Only the answer follows the automatic marker. The manual summary takes in
+    # the earlier tail, and the answer stays after it.
     assert marker["meta"]["keep_from"] == 6
+    assert adapter.requests[4].messages[1:-1] == agent.messages[3:5]
     assert project(agent.messages, None)[1:] == [agent.messages[6]]
 
 

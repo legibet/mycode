@@ -22,8 +22,9 @@ class NothingToCompactError(ValueError):
 
 
 COMPACT_SUMMARY_PROMPT = """\
-Pause the work and reply with text only; do not call tools. Write a handoff summary of the conversation above. \
-The summary replaces the conversation, and the next model continues from it without asking the user to repeat anything.
+You are now compacting this conversation to fit the context window. \
+Write a handoff summary of the conversation above. \
+The summary replaces the conversation, and the next model continues the work from it without asking the user to repeat anything.
 
 Use exactly these sections. Write "(none)" for an empty section.
 
@@ -53,10 +54,10 @@ Rules:
 - Summarize what the user and the assistant said and did. The system prompt is sent again with every request, so leave it out.
 - Leave out what the next model can look up again, such as file contents.
 - If the conversation begins with an earlier summary, merge it: keep what is still true, drop what is stale.
-- Output only the summary.\
+- Reply with the summary only, as plain text. Do not continue the work or call tools.\
 """
 
-CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the conversation up to the compaction. Any messages after it continue the conversation verbatim and may overlap the end of the summary."
+CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier part of that conversation. The messages after it are the most recent part, kept verbatim; they are newer than the summary."
 
 TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
 
@@ -120,42 +121,58 @@ def should_compact(messages: list[ConversationMessage], context_window: int, thr
     return False
 
 
+def _starts_step(message: ConversationMessage) -> bool:
+    """A step starts at an assistant message or a user message without tool results, so tool results stay with their call."""
+
+    return message["role"] == "assistant" or all(block["type"] != "tool_result" for block in message["content"])
+
+
+def _newest_step(messages: list[ConversationMessage]) -> int | None:
+    """Index where the newest step after the latest marker starts, or ``None`` when no step follows the marker."""
+
+    for i in range(len(messages) - 1, _latest_marker(messages), -1):
+        if _starts_step(messages[i]):
+            return i
+    return None
+
+
 def has_compactable_history(messages: list[ConversationMessage]) -> bool:
-    """True when at least one non-empty user/assistant message follows the latest compact marker."""
+    """True when a compaction has something to summarize.
 
-    for message in reversed(messages):
-        if message["role"] == "compact":
-            return False
-        if message["role"] in ("user", "assistant") and message["content"]:
-            return True
-    return False
-
-
-def find_keep_from(messages: list[ConversationMessage], context_window: int) -> int | None:
-    """Return the index where the verbatim tail starts, or ``None`` when nothing follows the latest marker.
-
-    The tail is the newest step, whatever its size, plus the earlier messages
-    that fit the token budget. When every message after the marker fits, only
-    the newest step is kept, so the tail never repeats the whole history
-    beside its summary. The tail does not start with tool results, so every
-    tool result keeps its call.
+    A compaction keeps the newest step after the latest marker and summarizes
+    the non-empty messages before it that the latest summary does not cover.
     """
 
+    newest = _newest_step(messages)
+    if newest is None:
+        return False
+    marker = _latest_marker(messages)
+    # The latest summary covers the messages before its tail.
+    start = 0 if marker < 0 else messages[marker].get("meta", {}).get("keep_from", marker)
+    return any(message["content"] for message in messages[start:newest] if message["role"] != "compact")
+
+
+def find_keep_from(messages: list[ConversationMessage], context_window: int) -> int:
+    """Return the index where the verbatim tail starts; ``len(messages)`` when no step follows the latest marker.
+
+    The tail is the newest step, whatever its size, plus the earlier steps
+    that fit the token budget. The summary covers the messages before the tail.
+    """
+
+    newest = _newest_step(messages)
+    if newest is None:
+        return len(messages)
     # A tenth of the window keeps summary plus tail below the threshold on small windows.
     budget = min(TAIL_TOKENS, context_window // 10)
-    newest = None
-    keep_from = None
-    tokens = 0
-    for i in range(len(messages) - 1, _latest_marker(messages), -1):
-        message = messages[i]
-        tokens += _estimate_tokens(message)
-        if tokens > budget and keep_from is not None:
+    tokens = sum(_estimate_tokens(message) for message in messages[newest:])
+    keep_from = newest
+    for i in range(newest - 1, _latest_marker(messages), -1):
+        tokens += _estimate_tokens(messages[i])
+        if tokens > budget:
             return keep_from
-        if message["role"] == "assistant" or all(block["type"] != "tool_result" for block in message["content"]):
+        if _starts_step(messages[i]):
             keep_from = i
-            if newest is None:
-                newest = i
-    # The scan reached the marker: everything fits, or the newest step is all there is.
+    # Every message after the marker fits. Keeping them all would leave nothing new to summarize.
     return newest
 
 

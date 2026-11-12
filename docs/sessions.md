@@ -180,20 +180,20 @@ When the SDK's `SessionStore.load_messages` runs:
 The agent checks before every provider request of a turn, ahead of steer delivery. The rules are pure functions in `mycode/src/mycode/compact.py`.
 
 1. `should_compact()` — estimate the context the request will send: the `usage.total_tokens` of the last valid assistant message after the latest compact marker, plus about one token per four characters of the messages after it. Compact when the estimate ≥ `context_window × compact_threshold` (default `0.8`). When no message after the latest marker reported usage, there is no check.
-2. Send the summary request: the normal request plus one `user` message carrying the summary prompt. The requests are otherwise identical, so providers reuse the cached prefix. Only the text of the response is used.
-3. `find_keep_from()` — choose the tail: the newest step after the latest marker, whatever its size, plus the earlier messages that fit `min(20_000, context_window // 10)` estimated tokens. When every message after the marker fits, only the newest step is kept, so the tail never repeats the whole history beside its summary. The tail does not start with tool results.
+2. `find_keep_from()` — choose the tail: the newest step after the latest marker, whatever its size, plus the earlier steps that fit `min(20_000, context_window // 10)` estimated tokens. A step starts at an assistant message or a user message without tool results, so the tail never starts with tool results. When every message after the marker fits, only the newest step is kept, so the rest is summarized.
+3. Send the summary request: the normal request with its messages cut where the tail starts, plus one `user` message carrying the summary prompt. The system prompt, tools and settings are those of a normal request, so providers reuse the cached prefix. Only the text of the response is used.
 4. Persist a compact marker with the summary, `meta.trigger="auto"`, the request's usage and cost, and `meta.keep_from`. The original messages remain in JSONL and visible history.
 5. Emit the `compact` stream event with `{"trigger": "auto"}`, then a `usage` event.
 
-The summary covers the whole history, including the tail. The marker is written before the request it makes room for and before any steer delivered at that step.
+The summary covers the messages before the tail, and the tail follows it verbatim, so the two do not overlap. The marker is written before the request it makes room for and before any steer delivered at that step.
 
-The headroom `(1 - compact_threshold) × context_window` is reserved for the summary request, which sends the current context plus the summary prompt. Lowering `compact_threshold` just triggers earlier; raising it is bounded by how much headroom the summary request needs to fit.
+The headroom `(1 - compact_threshold) × context_window` is the room left for a response once a check passes. The summary request needs no extra room: it leaves out the tail and adds only the summary prompt.
 
 When the summary request fails or returns an empty or incomplete summary, nothing is persisted. The agent logs a warning, continues the turn with the full history, and skips automatic compaction for the rest of that turn. Marker persistence failures propagate. User stop ends the turn with `cancelled` after cleanup; a marker commit already in progress finishes and is not rolled back.
 
 ### Manual compaction
 
-`Agent.acompact()` / `Agent.compact()` run steps 2 to 4 on demand, ignoring the threshold and recording `meta.trigger="manual"`. They return the committed marker. `has_compactable_history()` requires a non-empty `user`/`assistant` message after the latest compact marker; otherwise the call raises `NothingToCompactError` before any provider request. An empty or incomplete summary raises `ValueError`. See docs/sdk.md for the public API and the CLI's `/compact` command.
+`Agent.acompact()` / `Agent.compact()` run steps 2 to 4 on demand, ignoring the threshold and recording `meta.trigger="manual"`. They return the committed marker. They raise `NothingToCompactError` before any provider request when `has_compactable_history()` is false: no step follows the latest marker, or no message that the latest summary leaves uncovered precedes the newest step. An empty or incomplete summary raises `ValueError`. See docs/sdk.md for the public API and the CLI's `/compact` command.
 
 ### Provider projection
 

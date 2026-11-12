@@ -213,7 +213,7 @@ Response (`RunResponse`):
 Error responses:
 
 - `404` — session not found
-- `400` — `{"detail": "nothing to compact"}` when no new user/assistant message follows the latest compact marker
+- `400` — `{"detail": "nothing to compact"}` when no message precedes the newest step or none follows the latest compact marker
 - `400` — unsupported `reasoning_effort`, as on `/api/chat`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
 - `409` — another process has the session open; body is `{"detail": {"message": "..."}}` with no `run`

@@ -510,7 +510,8 @@ class Agent:
         ``stop_reason`` keeps it out of provider replay.
         """
 
-        stream = self._stream_provider_turn(run, adapter, self._build_request())
+        request = self._build_request(project(self.messages, self.transcript_path))
+        stream = self._stream_provider_turn(run, adapter, request)
         try:
             async for provider_event in stream:
                 run.check_cancelled()
@@ -574,14 +575,16 @@ class Agent:
     ) -> ConversationMessage:
         """Build a compact marker; callers own persistence and its failures.
 
-        The summary request is the normal request plus the summary prompt, so
-        providers can reuse the cached prefix.
+        The summary request is the normal request cut at the tail, plus the
+        summary prompt, so providers can reuse the cached prefix.
         """
 
         if not has_compactable_history(self.messages):
             raise NothingToCompactError("nothing to compact")
 
-        request = self._build_request(user_text_message(COMPACT_SUMMARY_PROMPT))
+        keep_from = find_keep_from(self.messages, self.context_window)
+        earlier = project(self.messages[:keep_from], self.transcript_path)
+        request = self._build_request([*earlier, user_text_message(COMPACT_SUMMARY_PROMPT)])
         response: ConversationMessage | None = None
         async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
             async for provider_event in stream:
@@ -602,7 +605,7 @@ class Agent:
             context_window=self.context_window,
             usage=response["meta"].get("usage"),
             cost=response["meta"].get("cost"),
-            keep_from=find_keep_from(self.messages, self.context_window),
+            keep_from=keep_from,
         )
 
     def _finalize_request_message(self, message: ConversationMessage) -> None:
@@ -999,12 +1002,9 @@ class Agent:
         base = min(8.0, 0.5 * 2 ** (failed_attempts - 1))
         return base * (1 - 0.25 * random.random())
 
-    def _build_request(self, append: ConversationMessage | None = None) -> ProviderRequest:
-        """Build a ProviderRequest from the agent's current state, optionally with one message appended."""
+    def _build_request(self, messages: list[ConversationMessage]) -> ProviderRequest:
+        """Build a ProviderRequest that sends ``messages`` with the agent's current settings."""
 
-        messages = project(self.messages, self.transcript_path)
-        if append is not None:
-            messages = [*messages, append]
         return ProviderRequest(
             provider=self.provider,
             model=self.model,
