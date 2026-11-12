@@ -200,7 +200,7 @@ When the summary request fails or returns an empty or incomplete summary, nothin
 Visible state preserves pre-compact history and `compact` markers. When the agent builds a provider request, `compact.project()` rebuilds a provider-facing view from the latest `compact` marker:
 
 - one synthetic `user` message that frames the continuation, embeds the summary text, and points at the original JSONL transcript
-- the marker's tail, `messages[keep_from:marker]` (empty without `keep_from`)
+- the marker's tail, `messages[keep_from:marker]`
 - the messages after the marker
 
 Everything else before the marker, including earlier markers and their tails, is left out. The message after the summary decides the head's shape:

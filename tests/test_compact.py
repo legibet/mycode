@@ -70,8 +70,10 @@ def _user(text: str) -> ConversationMessage:
     return {"role": "user", "content": [text_block(text)]}
 
 
-def _marker(summary: str = "summary", **overrides: Any) -> ConversationMessage:
-    return build_marker(summary, trigger="auto", provider="p", model="m", context_window=100, **overrides)
+def _marker(summary: str = "summary", *, keep_from: int, **overrides: Any) -> ConversationMessage:
+    return build_marker(
+        summary, trigger="auto", provider="p", model="m", context_window=100, keep_from=keep_from, **overrides
+    )
 
 
 def _roles(messages: list[ConversationMessage]) -> list[str]:
@@ -92,9 +94,9 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     raw_messages: list[ConversationMessage] = [
         _user("hello"),
         _reply("hi"),
-        _marker("old summary"),
+        _marker("old summary", keep_from=1),
         _user("next"),
-        _marker("new summary"),
+        _marker("new summary", keep_from=3),
         _reply("latest reply"),
     ]
     for message in raw_messages:
@@ -133,7 +135,7 @@ def test_projection_keeps_role_order_after_summary(
     expected_texts: list[str],
     continues_directly: bool,
 ) -> None:
-    projected = project([_user("early"), _reply("ok"), _marker(), *after], None)
+    projected = project([_user("early"), _reply("ok"), _marker(keep_from=2), *after], None)
 
     assert _roles(projected) == expected_roles
     summary = projected[0]["content"][0]
@@ -144,7 +146,13 @@ def test_projection_keeps_role_order_after_summary(
 
 
 def test_projection_uses_latest_summary_and_transcript_hint() -> None:
-    messages = [_user("very old"), _marker("EARLIER_SUMMARY"), _reply("mid"), _marker("LATEST_SUMMARY"), _reply("next")]
+    messages = [
+        _user("very old"),
+        _marker("EARLIER_SUMMARY", keep_from=1),
+        _reply("mid"),
+        _marker("LATEST_SUMMARY", keep_from=3),
+        _reply("next"),
+    ]
 
     projected = project(messages, "/sessions/s1/messages.jsonl")
 
@@ -207,7 +215,7 @@ def test_tail_respects_the_budget_and_keeps_tool_results_with_their_calls(contex
     messages = [
         _user("old " * 1_000),
         _reply("old answer"),
-        _marker(),
+        _marker(keep_from=1),
         _user("p" * 4_000),  # ~1_000 tokens
         *_tool_round("c1", 20_000, text="a" * 8_000),  # ~2_000 + 5_000 tokens
         *_tool_round("c2", 16_000),  # ~0 + 4_000 tokens
@@ -280,7 +288,7 @@ async def test_acompact_sends_the_request_cut_at_the_tail_plus_one_message_and_p
 @pytest.mark.parametrize(
     "history",
     [
-        pytest.param([_user("hi"), _marker()], id="nothing-after-the-marker"),
+        pytest.param([_user("hi"), _reply("hello"), _marker(keep_from=1)], id="nothing-after-the-marker"),
         pytest.param([_user("hi")], id="only-the-newest-step"),
     ],
 )
@@ -412,7 +420,7 @@ async def test_trigger_counts_messages_added_after_the_last_usage(
             [
                 _user("old"),
                 _reply("old answer", usage={"total_tokens": 95_000}),
-                _marker(usage={"total_tokens": 95_000}),
+                _marker(keep_from=1, usage={"total_tokens": 95_000}),
             ],
             False,
             id="no-usage-after-marker",

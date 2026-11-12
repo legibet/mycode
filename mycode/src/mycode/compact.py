@@ -148,7 +148,7 @@ def has_compactable_history(messages: list[ConversationMessage]) -> bool:
         return False
     marker = _latest_marker(messages)
     # The latest summary covers the messages before its tail.
-    start = 0 if marker < 0 else messages[marker].get("meta", {}).get("keep_from", marker)
+    start = 0 if marker < 0 else messages[marker]["meta"]["keep_from"]
     return any(message["content"] for message in messages[start:newest] if message["role"] != "compact")
 
 
@@ -194,22 +194,21 @@ def build_marker(
     provider: str,
     model: str,
     context_window: int,
+    keep_from: int,
     usage: Usage | None = None,
     cost: Cost | None = None,
-    keep_from: int | None = None,
 ) -> ConversationMessage:
     meta: MessageMeta = {
         "trigger": trigger,
         "provider": provider,
         "model": model,
         "context_window": context_window,
+        "keep_from": keep_from,
     }
     if usage:
         meta["usage"] = usage.copy()
     if cost is not None:
         meta["cost"] = cost.copy()
-    if keep_from is not None:
-        meta["keep_from"] = keep_from
     return build_message("compact", [text_block(summary)], meta=meta)
 
 
@@ -225,7 +224,7 @@ def project(messages: list[ConversationMessage], transcript_path: str | None) ->
     if marker < 0:
         return messages
 
-    keep_from = messages[marker].get("meta", {}).get("keep_from", marker)
+    keep_from = messages[marker]["meta"]["keep_from"]
     following = [*messages[keep_from:marker], *messages[marker + 1 :]]
     # A user message after the summary needs an assistant turn before it, so roles alternate.
     continue_now = not following or following[0]["role"] == "assistant"
