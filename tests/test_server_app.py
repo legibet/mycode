@@ -9,7 +9,7 @@ import shlex
 import string
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Event as ThreadEvent
@@ -456,6 +456,62 @@ def test_chat_reasoning_effort(
             assert "reasoning effort" in response.json()["detail"]
 
     assert adapter.reasoning_effort == expected_effort
+
+
+def test_compact_request_matches_the_chat_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home" / ".mycode"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("XAI_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    home.joinpath("config.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "custom": {
+                        "type": "openai_chat",
+                        "api_key": "${XAI_API_KEY}",
+                        "base_url": "https://api.x.ai/v1",
+                        "supports_reasoning_effort": True,
+                        "models": {"grok-4.5": {"reasoning_efforts": ["low"]}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    requests: list[ProviderRequest] = []
+
+    class _RecordingAdapter:
+        async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+            requests.append(request)
+            yield MessageDone({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _RecordingAdapter())
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    settings = {"provider": "custom", "model": "grok-4.5", "reasoning_effort": "low"}
+
+    def finish(response: httpx2.Response) -> None:
+        assert response.status_code == 200
+        with client.stream("GET", f"/api/runs/{response.json()['run']['id']}/stream") as stream:
+            list(stream.iter_lines())
+
+    with TestClient(app) as client:
+        finish(client.post("/api/chat", json={"session_id": "s1", "cwd": str(tmp_path), "message": "hi", **settings}))
+
+        unsupported = client.post("/api/sessions/s1/compact", json={**settings, "reasoning_effort": "high"})
+        assert unsupported.status_code == 400
+        assert "reasoning effort" in unsupported.json()["detail"]
+
+        finish(client.post("/api/sessions/s1/compact", json=settings))
+
+    # Same system prompt, tools (the agent tool included) and effort, so the
+    # summary request reuses the chat request's cached prefix.
+    chat_request, summary_request = requests
+    assert any(tool["name"] == "agent" for tool in chat_request.tools)
+    assert replace(summary_request, messages=[]) == replace(chat_request, messages=[])
 
 
 def test_chat_legacy_max_tokens_reaches_provider_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

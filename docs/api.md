@@ -195,11 +195,12 @@ Request body (`CompactRequest`, `cli/src/mycode_cli/server/schemas.py`):
 ```json
 {
   "provider": "anthropic",
-  "model": "claude-sonnet-5"
+  "model": "claude-sonnet-5",
+  "reasoning_effort": "medium"
 }
 ```
 
-Both fields are optional (config defaults apply). The working directory comes from the session metadata; the summary request carries no tools and no reasoning effort.
+All fields are optional (config defaults apply) and mean the same as on `/api/chat`. The working directory comes from the session metadata. With the same provider, model and effort as the session's chat requests, the summary request reuses their cached prefix.
 
 Response (`RunResponse`):
 
@@ -213,6 +214,7 @@ Error responses:
 
 - `404` — session not found
 - `400` — `{"detail": "nothing to compact"}` when no new user/assistant message follows the latest compact marker
+- `400` — unsupported `reasoning_effort`, as on `/api/chat`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
 - `409` — another process has the session open; body is `{"detail": {"message": "..."}}` with no `run`
 
@@ -550,7 +552,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `session_operation` covers this process only. Across processes, each run holds the session lock (`docs/sessions.md`, Session Lock) from before its first disk write until it frees the session's active slot; a refused claim answers `409`
 - Three run kinds share the lifecycle: `start_run(kind="chat" | "agent")` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event with `trigger: "manual"` after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
-- Agent runs are subagent turns started by `ServerAgentHost`, the server's subagent host, built with the parent agent for each chat and wake run. An agent run is keyed `<parent id>/<child id>`, holds no session lock (the `agent` tool holds the child's), and has no queue or job registry; its `session_base` is the child's totals
+- Agent runs are subagent turns started by `ServerAgentHost`, the server's subagent host, built with the parent agent for each chat, wake and compact run. An agent run is keyed `<parent id>/<child id>`, holds no session lock (the `agent` tool holds the child's), and has no queue or job registry; its `session_base` is the child's totals
 - The `agent` tool follows its run through `RunState.tap`, which receives every event the run buffers. The run writes the turn's outcome to `agent.json` before `run_finished`. A run that cannot start ends the turn as `failed` with the error
 - A blocking `agent` call's `tool_done` adds the child's `usage` and `cost` to the run's totals
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming

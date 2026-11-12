@@ -684,6 +684,7 @@ export function useChat(
         body: JSON.stringify({
           provider: config.provider || undefined,
           model: config.model || undefined,
+          reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
         }),
       });
 
@@ -718,11 +719,11 @@ export function useChat(
     }
   }, [
     cancel,
-    config.model,
-    config.provider,
+    config,
     fetchSessions,
     isCurrentStartRequest,
     loading,
+    remoteConfig,
     resyncIfQuiet,
     streamRun,
   ]);

@@ -801,7 +801,7 @@ class ServerAgentHost(LocalAgentHost):
     """The ``AgentHost`` of the web server: each child turn is an ``agent`` run of
     the run manager, keyed ``<parent id>/<child id>``, streaming on its own run id.
 
-    Built with the parent agent for each chat and wake run, with the parent's review.
+    Built with the parent agent for each chat, wake and compact run, with the parent's review.
     """
 
     runs: RunManager

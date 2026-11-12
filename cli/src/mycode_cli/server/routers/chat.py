@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 
+from mycode import has_compactable_history
 from mycode.agent import Agent
 from mycode.attachments import (
     Attachment,
@@ -24,7 +25,6 @@ from mycode.attachments import (
     detect_document_mime_type,
     detect_image_mime_type,
 )
-from mycode.compact import has_compactable_history
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
@@ -234,7 +234,11 @@ def _build_session_agent(
     review: ToolReviewCallback,
     jobs: BackgroundJobs,
 ) -> Agent:
-    """Build the session's agent for a chat or wake run, its subagents run as agent runs."""
+    """Build the session's agent for a chat, wake or compact run; its subagents run as agent runs.
+
+    A compact run builds it the same way, so its summary request matches the
+    chat requests and reuses their cached prefix.
+    """
 
     agents = ServerAgentHost(
         runs=runs,
@@ -253,6 +257,24 @@ def _build_session_agent(
         jobs=jobs,
         agents=agents,
     )
+
+
+def _session_review(runs: RunManager, session_id: str) -> ToolReviewCallback:
+    """Return a callback that bridges before_tool review waits to SSE events on the session's active run.
+
+    A blocking subagent's requests wait on it too, naming the subagent.
+    """
+
+    async def review(request: ToolReviewRequest) -> ToolReviewDecision:
+        return await runs.request_decision(
+            session_id=session_id,
+            tool_call_id=request.tool_call_id,
+            tool_name=request.tool_name,
+            preview=request.preview,
+            agent=request.agent,
+        )
+
+    return review
 
 
 async def _record_queued_turn(store: SessionStore, session_id: str, cwd: str, message: ConversationMessage) -> None:
@@ -310,17 +332,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 text=display_text(user_message),
             )
 
-            async def review(request: ToolReviewRequest) -> ToolReviewDecision:
-                # Bridge before_tool review waits to SSE events on the active run;
-                # a blocking subagent's requests wait on it too, naming the subagent.
-                return await runs.request_decision(
-                    session_id=session_id,
-                    tool_call_id=request.tool_call_id,
-                    tool_name=request.tool_name,
-                    preview=request.preview,
-                    agent=request.agent,
-                )
-
+            review = _session_review(runs, session_id)
             agent = await asyncio.to_thread(
                 _build_session_agent,
                 runs=runs,
@@ -514,13 +526,20 @@ async def compact_session(
 
             settings = await asyncio.to_thread(get_settings, data["session"]["cwd"])
             resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
+            try:
+                request_provider = resolved.with_reasoning_effort(body.reasoning_effort)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
             agent = await asyncio.to_thread(
-                build_agent,
+                _build_session_agent,
+                runs=runs,
                 store=store,
                 settings=settings,
-                resolved_provider=resolved,
+                resolved_provider=request_provider,
                 session_id=session_id,
+                review=_session_review(runs, session_id),
+                jobs=runs.jobs_for(session_id),
             )
 
             run = await runs.start_compact(

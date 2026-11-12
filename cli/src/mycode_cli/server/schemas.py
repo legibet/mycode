@@ -170,6 +170,7 @@ class CompactRequest(BaseModel):
 
     provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
+    reasoning_effort: str | None = None
 
 
 class ChatResponse(BaseModel):
