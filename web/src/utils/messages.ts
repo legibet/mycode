@@ -718,6 +718,9 @@ export function buildRenderMessages(
       turnStats = foldTurnStats(turnStats, meta);
       if (turnStats) delete turnStats.context_tokens;
       if (meta.created_at) turnEndedAt = meta.created_at;
+      // Compaction runs ahead of a request, so a turn that ends on the marker
+      // was stopped, or failed without a persisted record, before the response.
+      turnInterruption = "cancelled";
       const assistantMessage = ensureAssistantRenderMessage(sourceIndex);
       currentAssistant = {
         ...assistantMessage,

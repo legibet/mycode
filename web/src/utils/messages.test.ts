@@ -659,6 +659,20 @@ describe("turn interruption", () => {
     expect(interruptions([user("go"), toolCall, toolResult, user("next")])).toEqual(["cancelled"]);
   });
 
+  it("treats a turn that ends on an automatic compaction as stopped", () => {
+    const compact: ChatMessage = { role: "compact", content: [], meta: { trigger: "auto" } };
+    const steer: ChatMessage = { ...user("steer"), meta: { steer: true } };
+
+    expect(interruptions([user("go"), compact])).toEqual(["cancelled"]);
+    expect(interruptions([user("go"), toolCall, toolResult, compact])).toEqual(["cancelled"]);
+    // A response or a steer after the marker means the turn went on.
+    expect(interruptions([user("go"), compact, reply("stop")])).toEqual([undefined]);
+    expect(interruptions([user("go"), reply("stop"), compact, steer, reply("stop")])).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("reads tool results followed by a steer as a continued turn", () => {
     const at = (seconds: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
     const steer: ChatMessage = {
