@@ -147,10 +147,10 @@ Available values come from the selected model's metadata or its `reasoning_effor
 
 - `readonly` — clear read-only actions under `project`, discovered skill reads, and simple read-only shell commands
 - `safe` — `readonly` plus `project`-local `write`/`edit`
-- `standard` — `safe` plus ordinary single shell commands
+- `standard` — `safe` plus ordinary shell commands
 - `yolo` — allow all tool calls
 
-With `mode: "ask"` the TUI and web prompt for approval outside the level; `"deny"` rejects without prompting. The classification rules — compound and destructive shell commands, the webfetch trust boundary — are specified in `docs/tools.md`.
+With `mode: "ask"` the TUI and web prompt for approval outside the level; `"deny"` rejects without prompting. The classification rules — the level of each shell command, the webfetch trust boundary — are specified in `docs/tools.md`.
 
 ## Project Boundary
 

@@ -94,13 +94,14 @@ error: permission denied: bash call needs level yolo, this agent allows readonly
 
 An explicit user `Deny` returns `error: permission denied by user` and cancels the current run in both TUI and web.
 
-The shell checks are intentionally simple and conservative. `readonly` is a heuristic allowlist over the command text, not a sandbox: it means only that the command matches programs and flags known not to write or run anything else. A command is `readonly`, `standard`, or `yolo`:
+The shell checks are intentionally simple and conservative. `readonly` is a heuristic allowlist over the command text, not a sandbox: it means only that the command matches programs and flags known not to write or run anything else. It does not see what the environment adds, such as a repository whose git config makes `git status` run a program. A command is `readonly`, `standard`, or `yolo`:
 
-- Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code; so is any command not on the allowlist.
-- Allowlisted programs lose `readonly` with arguments that write or execute: `env` with any argument, `sort` with `-o`/`--output`, `uniq` with a second file operand, `rg` with `--pre`/`--pre-glob`.
-- A list or pipeline (split at `|`, `||`, `&&`, and `;` outside quotes and escapes) is `readonly` when every segment is, and `yolo` otherwise.
-- An unquoted `2>&1` word only merges stderr into stdout, so it is ignored: `rg foo 2>&1 | head` is `readonly`.
-- Other compound commands (`|&`, `&`, other redirections, subshells, command and process substitution, newlines) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) are `yolo`: they require level `yolo` or `mode: "ask"` approval.
+- Allowlisted programs that only read are `readonly`: `ls`, `cat`, `rg`, `find`, `cd`, `echo` and similar, and the reading subcommands of `git` (`status`, `diff`, `log`, `show`, `grep`, `blame` and similar; `branch` and `remote` only with listing flags).
+- Allowlisted programs lose `readonly` with arguments that write or execute: `env` with any argument, `sort` with `-o`/`--output`/`--compress-program`, `uniq` with a second file operand, `rg` with `--pre`/`--pre-glob`/`--hostname-bin`, `tree` with `-o`, `file` with `-C`, and `git` with `--output`, with `grep -O`/`--open-files-in-pager`, or with any option before the subcommand other than `-C <dir>`. `sed` is `readonly` only as `sed -n 'N,Mp' [file...]`.
+- Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code; so is any command not on the allowlist, including `<program> --version`.
+- A list or pipeline (split at `|`, `||`, `&&`, and `;` outside quotes and escapes) takes the highest level among its commands: `cd web && pnpm test` is `standard`, and `ls; rm -rf dist` is `yolo`.
+- An unquoted `2>&1` word and a redirection to `/dev/null` write nothing, so they are ignored: `rg foo 2>/dev/null | head` is `readonly`.
+- Commands that are not analyzed (`|&`, `&`, other redirections, subshells, command and process substitution, newlines, control flow such as `for` and `if`) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) are `yolo`: they require level `yolo` or `mode: "ask"` approval.
 
 `agent` is `safe`, with the description as its preview; the child's own calls are checked when it makes them. `webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` or a discovered skill's directory are `readonly`, including follow-up reads of truncated webfetch output.
 

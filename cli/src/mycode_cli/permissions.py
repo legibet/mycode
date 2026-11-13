@@ -3,8 +3,8 @@
 The shell classification is a heuristic allowlist, not a sandbox: it reads the
 command text, and ``readonly`` means only that the command matches programs and
 flags known not to write or execute anything else. A list or pipeline (``|``,
-``||``, ``&&``, ``;``) is ``readonly`` when every command in it is; ``2>&1``
-writes nothing and is ignored.
+``||``, ``&&``, ``;``) takes the highest level of its commands; ``2>&1`` and
+redirections to ``/dev/null`` write nothing and are ignored.
 """
 
 from __future__ import annotations
@@ -41,12 +41,18 @@ _TOOL_LOWEST_LEVEL: dict[str, PermissionLevel] = {
     "websearch": "standard",
 }
 
-# An unquoted ``2>&1`` word only merges stderr into stdout.
-_STDERR_TO_STDOUT = re.compile(r"2>&1(?=[\s|;&]|$)")
+# An unquoted ``2>&1`` word or redirection to ``/dev/null`` writes nothing.
+_NO_WRITE_REDIRECT = re.compile(r"(?:2>&1|(?:[12]?>>?|&>) ?/dev/null)(?=[\s|;&]|$)")
 
 # shlex's default punctuation characters. A token made only of them is a shell
 # operator: a list, pipe, redirection, or (process) substitution.
 _SHELL_PUNCTUATION = frozenset("();<>|&")
+
+# Bash reserved words that start a command. Control flow is not analyzed.
+_SHELL_KEYWORDS = {
+    "!", "{", "}", "[[", "case", "coproc", "do", "done", "elif", "else", "esac",
+    "fi", "for", "function", "if", "select", "then", "time", "until", "while",
+}  # fmt: skip
 
 _DANGEROUS_PROGRAMS = {
     "rm", "rmdir", "mv", "cp", "sudo", "chmod", "chown",
@@ -54,17 +60,20 @@ _DANGEROUS_PROGRAMS = {
 }  # fmt: skip
 _DANGEROUS_GIT_SUBCOMMANDS = {"reset", "clean", "checkout", "restore"}
 
-# awk/sed are excluded: both can write files and shell out, and statically
-# parsing their scripts isn't worth it.
+# awk and sed are excluded: both can write files and shell out, and statically
+# parsing their scripts isn't worth it. The one sed form allowed prints lines.
 _READONLY_PROGRAMS = {
+    "cd", "echo", "true", "false",
     "pwd", "ls", "dir", "tree", "rg", "grep", "cat", "head", "tail",
     "wc", "stat", "file", "du", "df", "which", "printenv",
     "date", "uname", "whoami", "id", "hostname", "ps", "uptime",
     "realpath", "dirname", "basename",
     "sort", "uniq", "cut", "tr",
 }  # fmt: skip
+_SED_PRINT_LINES = re.compile(r"\d+(,\d+)?p")
 _READONLY_GIT_SUBCOMMANDS = {"status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "describe"}
 _READONLY_BRANCH_FLAGS = {"-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--show-current"}
+_READONLY_REMOTE_FLAGS = {"-v", "--verbose"}
 
 # find flags that write files or execute commands.
 _FIND_DANGEROUS_FLAGS = {
@@ -198,16 +207,14 @@ def classify_tool(
 
 
 def _classify_bash(command: str) -> PermissionLevel:
-    segments = _split_list(command)
-    if len(segments) > 1:
-        # A list or pipeline of readonly commands only reads; anything else in it needs yolo.
-        return "readonly" if all(_classify_command(segment) == "readonly" for segment in segments) else "yolo"
-    return _classify_command(segments[0])
+    """The highest level among the commands of the list or pipeline."""
+
+    return max((_classify_command(segment) for segment in _split_list(command)), key=_LEVEL_RANK.__getitem__)
 
 
 def _split_list(command: str) -> list[str]:
     """Split ``command`` at each ``|``, ``||``, ``&&`` and ``;`` outside quotes and
-    escapes, and drop each unquoted ``2>&1`` word.
+    escapes, and drop each unquoted ``2>&1`` word and redirection to ``/dev/null``.
 
     ``|&``, ``&``, and repeated operators stay in a segment or leave an empty
     one, which ``_classify_command`` rejects.
@@ -234,8 +241,8 @@ def _split_list(command: str) -> list[str]:
             current = []
             index += 2 if command.startswith(("||", "&&"), index) else 1
             continue
-        elif (not current or current[-1].isspace()) and _STDERR_TO_STDOUT.match(command, index):
-            index += len("2>&1")
+        elif (not current or current[-1].isspace()) and (redirect := _NO_WRITE_REDIRECT.match(command, index)):
+            index = redirect.end()
             continue
         current.append(char)
         index += 1
@@ -247,7 +254,7 @@ def _classify_command(command: str) -> PermissionLevel:
     command = command.strip()
     if not command:
         return "yolo"
-    # Newlines and shell expansion bypass static analysis; treat as compound.
+    # Newlines and command substitution are not analyzed.
     if "\n" in command or "\r" in command or "$(" in command or "`" in command:
         return "yolo"
     try:
@@ -257,7 +264,7 @@ def _classify_command(command: str) -> PermissionLevel:
         words = shlex.split(command, posix=True)
     except ValueError:
         return "yolo"
-    if not words or any(set(t) <= _SHELL_PUNCTUATION for t in tokens):
+    if not words or words[0] in _SHELL_KEYWORDS or any(set(t) <= _SHELL_PUNCTUATION for t in tokens):
         return "yolo"
 
     program = Path(words[0]).name
@@ -284,45 +291,71 @@ def _is_dangerous(program: str, words: list[str]) -> bool:
 
 
 def _is_readonly(program: str, words: list[str]) -> bool:
-    if len(words) == 2 and words[1] in {"--version", "-v", "version"}:
-        return True
+    args = words[1:]
     if program == "env":
         # With arguments env runs a command or changes the environment for one.
-        return len(words) == 1
+        return not args
     if program == "sort":
-        # -o/--output writes a file; any long option starting --o abbreviates --output.
-        return not any(w.startswith("--o") or (_is_short_flags(w) and "o" in w) for w in words[1:])
+        # -o/--output writes a file and --compress-program runs a program.
+        return not _has_flag(args, "o", "--o", "--c")
+    if program == "tree":
+        # -o writes a file.
+        return not _has_flag(args, "o")
+    if program == "file":
+        # -C/--compile writes a compiled magic file.
+        return not _has_flag(args, "C", "--c")
+    if program == "sed":
+        # Only ``sed -n 'N,Mp' [file...]``, which prints lines.
+        return (
+            len(args) >= 2
+            and args[0] == "-n"
+            and _SED_PRINT_LINES.fullmatch(args[1]) is not None
+            and not any(w.startswith("-") for w in args[2:])
+        )
     if program == "uniq":
         # A second file operand is the output file; after ``--`` every word is an operand.
-        args = words[1:]
         end = args.index("--") if "--" in args else len(args)
         operands = [w for w in args[:end] if w == "-" or not w.startswith("-")] + args[end + 1 :]
         return len(operands) < 2
     if program == "rg":
-        # --pre and --pre-glob run a preprocessor command on each file.
-        return not any(w.split("=", 1)[0] in {"--pre", "--pre-glob"} for w in words[1:])
+        # --pre and --pre-glob run a preprocessor on each file; --hostname-bin runs a program.
+        return not any(w.split("=", 1)[0] in {"--pre", "--pre-glob", "--hostname-bin"} for w in args)
     if program in _READONLY_PROGRAMS:
         return True
     if program == "find":
         return True
-    if program == "command" and words[1:2] == ["-v"] and len(words) >= 3:
+    if program == "command" and args[:1] == ["-v"] and len(args) >= 2:
         return True
-    if program == "type" and len(words) >= 2:
+    if program == "type" and args:
         return True
     if program != "git":
         return False
-    sub = _git_subcommand(words)
-    if sub in _READONLY_GIT_SUBCOMMANDS:
-        return True
-    if sub == "remote":
-        return not any(w in {"add", "remove", "rm", "rename", "set-url"} for w in words[2:])
+
+    # Before the subcommand only ``-C <dir>`` is allowed; other options can set config that runs programs.
+    if args[:1] == ["-C"]:
+        args = args[2:]
+    if not args:
+        return False
+    sub, args = args[0], args[1:]
     if sub == "branch":
-        return all(w in _READONLY_BRANCH_FLAGS for w in words[2:])
-    return False
+        return all(w in _READONLY_BRANCH_FLAGS for w in args)
+    if sub == "remote":
+        return all(w in _READONLY_REMOTE_FLAGS for w in args)
+    if sub not in _READONLY_GIT_SUBCOMMANDS:
+        return False
+    # --output writes a file; grep's -O/--open-files-in-pager runs a program.
+    if any(w.startswith("--output") for w in args):
+        return False
+    return sub != "grep" or not _has_flag(args, "O", "--op")
 
 
-def _is_short_flags(word: str) -> bool:
-    return word.startswith("-") and not word.startswith("--")
+def _has_flag(args: list[str], short: str, *long: str) -> bool:
+    """True when ``args`` has the short flag, alone or in a group, or a long option that starts with one of ``long``.
+
+    Long options can be abbreviated, so ``long`` holds the shortest prefixes to reject.
+    """
+
+    return any(w.startswith(long) if w.startswith("--") else w.startswith("-") and short in w for w in args)
 
 
 def _git_subcommand(words: list[str]) -> str | None:

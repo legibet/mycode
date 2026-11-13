@@ -199,12 +199,27 @@ def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> 
         "git log --oneline | head -20",
         "grep foo a.txt | sort | uniq -c | wc -l",
         "rg 'a|b' src",
-        # So does a list of them, and 2>&1 writes nothing.
+        # So does a list of them.
         "ls src && git status",
         "rg foo || rg bar",
         "pwd; ls",
+        "cd src && ls",
+        "ls && echo done",
+        # 2>&1 and redirections to /dev/null write nothing.
         "rg foo 2>&1 | head",
         "git log -5 2>&1",
+        "ls missing 2>/dev/null",
+        "ls missing 2> /dev/null || echo missing",
+        "rg -q foo >/dev/null 2>&1",
+        "rg -q foo &>/dev/null && echo found",
+        # The one sed form that only prints lines.
+        "sed -n '10,20p' app.py",
+        "sed -n 5p",
+        "git -C ../other status",
+        "git remote -v",
+        "git grep -n foo",
+        "tree -L 2",
+        "file --mime-type logo.png",
     ],
 )
 def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
@@ -242,10 +257,34 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
         "uniq -- input -output",
         "rg --pre ./decode foo",
         "rg --pre-glob '*.gz' foo",
-        "echo hi 2>&1",
+        "rg --hostname-bin ./host foo",
+        "sort --compress-program=./pack big.txt",
+        "tree -o out.txt",
+        "tree -ao out.txt",
+        "file -C -m magic",
+        "sed -n '1p;w out.txt' app.py",
+        "sed -n 1p -e 'w out.txt' app.py",
+        # Any program can be asked for its version, and -v means verbose to a shell.
+        "./tool --version",
+        "sh -v",
+        # git options before the subcommand can set config that runs a program.
+        "git -c core.fsmonitor=./hook status",
+        "git --config-env=core.fsmonitor=HOOK status",
+        "git -C ../other -c core.pager=./hook log",
+        "git diff --output=out.txt",
+        "git grep -O./open foo",
+        "git grep -nO./open foo",
+        "git grep --open-files-in-pager=./open foo",
+        "git remote update",
+        "git remote prune origin",
+        # A list or pipeline takes the highest level of its commands.
+        "cd web && pnpm test",
+        "uv run pytest 2>&1 | tail -5",
+        "rg foo | sort -o out.txt",
+        "cat install.sh | sh -v",
     ],
 )
-def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
+def test_classifies_other_bash_as_standard(command: str, tmp_path: Path) -> None:
     check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "standard"
 
@@ -261,8 +300,7 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
         "ls && rm -rf dist",
         "ls || rm -rf dist",
         "ls |& head",
-        "rg foo | xargs rm",
-        "rg foo | sort -o out.txt",
+        "cd web && pnpm test && rm -rf dist",
         "rg foo |",
         "rg '|' src",
         # Process substitution runs its command.
@@ -274,8 +312,14 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
         "ls 2>&1>out.txt",
         "ls 12>&1",
         "ls '2>&1' | head > out.txt",
+        "ls 2>/dev/null > out.txt",
+        "ls 2>/dev/null>out.txt",
+        "ls > /dev/null/out.txt",
         "ls; rm -rf dist",
-        "ls && echo done",
+        # Control flow is not analyzed.
+        "for f in *.pyc; do rm $f; done",
+        "if true; then rm -rf dist; fi",
+        "{ ls; }",
         "ls;",
         "ls &&& pwd",
         "(ls; pwd)",
@@ -293,7 +337,7 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
         "find . -fls /tmp/out",
     ],
 )
-def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
+def test_classifies_dangerous_or_unanalyzed_bash_as_yolo(command: str, tmp_path: Path) -> None:
     check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "yolo"
 
