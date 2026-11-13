@@ -422,7 +422,7 @@ Delete session. Returns `409` if session has a running task, or if another proce
 
 ### `DELETE /api/sessions/{id}/jobs/{job_id}`
 
-Kill one running background job: a command, or a background agent's turn. Its result is still delivered to the model like any other completion, with the signal's exit code or `status: "cancelled"`, and `job_finished` follows. Returns `404` when the session has no such running job; `job_id` is validated like `child_id`.
+Kill one running background job: a command, or a background agent's turn. Its result is still delivered to the model like any other completion and says the user stopped it, with the signal's exit code or `status: "cancelled"`, and `job_finished` follows. Returns `404` when the session has no such running job; `job_id` is validated like `child_id`.
 
 ### `GET /api/sessions/{id}/agents/{child_id}`
 

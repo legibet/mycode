@@ -117,6 +117,8 @@ class TestTool:
         [block] = jobs.pending
         assert block["meta"]["job"]["id"] == job_id
         assert block["meta"]["job"]["exit_code"] < 0
+        # The header tells the model who ended the command.
+        assert block["text"].startswith("Background bash stopped by the user (pid ")
         assert jobs.jobs == []
 
 

@@ -21,7 +21,6 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher, unified_diff
-from functools import partial
 from pathlib import Path
 from typing import BinaryIO, Literal, TextIO
 from uuid import uuid4
@@ -781,8 +780,14 @@ async def bash_tool(
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     label = _command_label(command)
     tool_use_id = ctx.tool_call_id or ""
+    stopped = asyncio.Event()
+
+    def stop() -> None:
+        stopped.set()
+        _kill_proc_tree(proc)
+
     task = asyncio.create_task(
-        _finish_background(jobs, proc, output, job_id=job_id, tool_use_id=tool_use_id, label=label)
+        _finish_background(jobs, proc, output, job_id=job_id, tool_use_id=tool_use_id, label=label, stopped=stopped)
     )
     jobs.add(
         BackgroundJob(
@@ -793,7 +798,7 @@ async def bash_tool(
             pid=proc.pid,
             started_at=datetime.now(UTC).isoformat(),
             task=task,
-            kill=partial(_kill_proc_tree, proc),
+            kill=stop,
         )
     )
     return ToolExecutionResult(
@@ -881,12 +886,14 @@ async def _finish_background(
     job_id: str,
     tool_use_id: str,
     label: str,
+    stopped: asyncio.Event,
 ) -> None:
     """Drain a background command to its log, then hand its result to the registry.
 
-    A failure to capture the output (such as a log file that cannot be
-    written) still ends in a notification, carrying the error after whatever
-    output was captured.
+    When ``stopped`` is set, the header says the user stopped the command, so
+    the model does not guess why it died. A failure to capture the output
+    (such as a log file that cannot be written) still ends in a notification,
+    carrying the error after whatever output was captured.
     """
 
     error: str | None = None
@@ -907,7 +914,8 @@ async def _finish_background(
         output.close()
 
     exit_code = proc.returncode or 0
-    header = f"Background bash finished (pid {proc.pid}, exit code {exit_code}): {label}\nLog: {output.log_path}"
+    ended = "stopped by the user" if stopped.is_set() else "finished"
+    header = f"Background bash {ended} (pid {proc.pid}, exit code {exit_code}): {label}\nLog: {output.log_path}"
     body = _format_bash_output(snapshot)
     if error is not None:
         body = f"{body}\n\n{error}"
