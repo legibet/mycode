@@ -468,6 +468,52 @@ async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_output_limit_fits_the_room_the_context_leaves() -> None:
+    agent = Agent(
+        model="m", provider="anthropic", context_window=100_000, max_tokens=50_000, compact_threshold=0, tools=[dump]
+    )
+    adapter = _Adapter(
+        _call("c1", 40_000, usage={"total_tokens": 70_000}),
+        _call("c2", 40_000, usage={"total_tokens": 95_000}),
+        _reply("done"),
+    )
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for _ in agent.achat("hello"):
+            pass
+
+    first, second, third = adapter.requests
+    assert first.max_tokens == 50_000
+    # 70,000 tokens reported, plus about 10,000 for the tool result.
+    assert 0 < second.max_tokens <= 100_000 - 80_000
+    # No room is left by this measure: the limit is not lowered and the provider decides.
+    assert third.max_tokens == 50_000
+
+
+@pytest.mark.asyncio
+async def test_output_limit_of_the_summary_request_ignores_the_tail() -> None:
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, max_tokens=50_000, tools=[dump])
+    adapter = _Adapter(
+        _call("c1", 4_000, usage={"total_tokens": 10_000}),
+        _call("c2", 300_000, usage={"total_tokens": 12_000}),
+        _reply("SUMMARY"),
+        _reply("done"),
+    )
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for _ in agent.achat("hello"):
+            pass
+
+    # The second tool result fills the window and stays in the tail, so the
+    # summary request is small and keeps the full limit.
+    assert agent.messages[5]["meta"]["keep_from"] == 3
+    assert adapter.requests[2].max_tokens == 50_000
+    # No response has reported usage after the marker: the request with the
+    # 75,000-token tail is sized by an estimate.
+    assert 0 < adapter.requests[3].max_tokens <= 100_000 - 75_000
+
+
+@pytest.mark.asyncio
 async def test_compaction_summarizes_the_messages_before_the_tail_and_keeps_the_tail() -> None:
     agent = Agent(model="m", provider="anthropic", context_window=100_000, tools=[dump])
     adapter = _Adapter(

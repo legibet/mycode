@@ -81,7 +81,7 @@ def _latest_marker(messages: list[ConversationMessage]) -> int:
     return -1
 
 
-def _estimate_tokens(message: ConversationMessage) -> int:
+def estimate_tokens(message: ConversationMessage) -> int:
     """Rough token count of one message: 4 characters per token, a flat count per attachment."""
 
     chars = 0
@@ -100,25 +100,30 @@ def _estimate_tokens(message: ConversationMessage) -> int:
     return chars // 4 + attachments * ATTACHMENT_TOKENS
 
 
-def should_compact(messages: list[ConversationMessage], context_window: int, threshold: float) -> bool:
-    """True when the context of the next request reaches ``context_window × threshold``.
+def context_size(messages: list[ConversationMessage]) -> int | None:
+    """Tokens of the context the next request sends, or ``None`` when no response after the latest marker reported usage.
 
-    The context is the usage the last valid response reported plus an estimate
-    of the messages after it. False when no response after the latest marker
-    reported usage.
+    The size is the usage the last valid response reported plus an estimate of
+    the messages after it.
     """
 
-    if threshold <= 0:
-        return False
     for i in range(len(messages) - 1, _latest_marker(messages), -1):
         message = messages[i]
         meta = message.get("meta", {})
         if message["role"] != "assistant" or meta.get("stop_reason") in ("error", "cancelled"):
             continue
         if total := (meta.get("usage") or {}).get("total_tokens"):
-            tokens = total + sum(_estimate_tokens(later) for later in messages[i + 1 :])
-            return tokens >= context_window * threshold
-    return False
+            return total + sum(estimate_tokens(later) for later in messages[i + 1 :])
+    return None
+
+
+def should_compact(messages: list[ConversationMessage], context_window: int, threshold: float) -> bool:
+    """True when the context of the next request reaches ``context_window × threshold``; False when its size is unknown."""
+
+    if threshold <= 0:
+        return False
+    tokens = context_size(messages)
+    return tokens is not None and tokens >= context_window * threshold
 
 
 def _starts_step(message: ConversationMessage) -> bool:
@@ -163,10 +168,10 @@ def find_keep_from(messages: list[ConversationMessage], context_window: int) -> 
         return None
     # A tenth of the window keeps summary plus tail below the threshold on small windows.
     budget = min(TAIL_TOKENS, context_window // 10)
-    tokens = sum(_estimate_tokens(message) for message in messages[newest:])
+    tokens = sum(estimate_tokens(message) for message in messages[newest:])
     keep_from = newest
     for i in range(newest - 1, _latest_marker(messages), -1):
-        tokens += _estimate_tokens(messages[i])
+        tokens += estimate_tokens(messages[i])
         if tokens > budget:
             return keep_from
         if _starts_step(messages[i]):

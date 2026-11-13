@@ -187,7 +187,7 @@ The agent checks before every provider request of a turn, ahead of steer deliver
 
 The summary covers the messages before the tail, and the tail follows it verbatim, so the two do not overlap. The marker is written before the request it makes room for and before any steer delivered at that step.
 
-The headroom `(1 - compact_threshold) × context_window` is the room left for a response once a check passes. The summary request needs no extra room: it leaves out the tail and adds only the summary prompt.
+The headroom `(1 - compact_threshold) × context_window` is the room left for a response once a check passes, and each request's output limit is lowered to the room its context leaves (`docs/providers.md`, Output Token Cap). The summary request needs no extra room: it leaves out the tail and adds only the summary prompt.
 
 When the summary request fails or returns an empty or incomplete summary, nothing is persisted. The agent logs a warning, continues the turn with the full history, and skips automatic compaction for the rest of that turn. Marker persistence failures propagate. User stop ends the turn with `cancelled` after cleanup; a marker commit already in progress finishes and is not rolled back.
 

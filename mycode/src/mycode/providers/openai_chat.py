@@ -49,7 +49,7 @@ class _ChatToolCallState:
 
 def _normalize_finish_reason(raw_reason: str | None) -> StopReason:
     reason = str(raw_reason or "").lower()
-    if reason == "length":
+    if reason in {"length", "model_context_window_exceeded"}:
         return "length"
     if reason == "content_filter":
         return "error"

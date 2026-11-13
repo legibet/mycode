@@ -508,10 +508,11 @@ def test_compact_request_matches_the_chat_request(tmp_path: Path, monkeypatch: p
         finish(client.post("/api/sessions/s1/compact", json=settings))
 
     # Same system prompt, tools (the agent tool included) and effort, so the
-    # summary request reuses the chat request's cached prefix.
+    # summary request reuses the chat request's cached prefix. The output
+    # limit follows each request's context.
     chat_request, summary_request = requests
     assert any(tool["name"] == "agent" for tool in chat_request.tools)
-    assert replace(summary_request, messages=[]) == replace(chat_request, messages=[])
+    assert replace(summary_request, messages=[], max_tokens=0) == replace(chat_request, messages=[], max_tokens=0)
 
 
 def test_chat_legacy_max_tokens_reaches_provider_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

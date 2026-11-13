@@ -8,6 +8,7 @@ message is appended to the on-disk session log.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import threading
@@ -26,6 +27,8 @@ from mycode.compact import (
     DEFAULT_COMPACT_THRESHOLD,
     NothingToCompactError,
     build_marker,
+    context_size,
+    estimate_tokens,
     find_keep_from,
     project,
     should_compact,
@@ -85,6 +88,9 @@ from mycode.tools import (
 from mycode.usage import Cost, Usage, add_cost, add_usage, estimate_cost
 
 logger = logging.getLogger(__name__)
+
+# Tokens left free between the context and the output limit of a request; the context size is partly an estimate.
+_OUTPUT_MARGIN_TOKENS = 4_096
 
 PersistCallback = Callable[[ConversationMessage], Awaitable[None]]
 
@@ -509,7 +515,7 @@ class Agent:
         ``stop_reason`` keeps it out of provider replay.
         """
 
-        request = self._build_request(project(self.messages, self.transcript_path))
+        request = self._build_request(self.messages)
         stream = self._stream_provider_turn(run, adapter, request)
         try:
             async for provider_event in stream:
@@ -582,8 +588,7 @@ class Agent:
         if keep_from is None:
             raise NothingToCompactError("nothing to compact")
 
-        earlier = project(self.messages[:keep_from], self.transcript_path)
-        request = self._build_request([*earlier, user_text_message(COMPACT_SUMMARY_PROMPT)])
+        request = self._build_request(self.messages[:keep_from], user_text_message(COMPACT_SUMMARY_PROMPT))
         response: ConversationMessage | None = None
         async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
             async for provider_event in stream:
@@ -1001,17 +1006,29 @@ class Agent:
         base = min(8.0, 0.5 * 2 ** (failed_attempts - 1))
         return base * (1 - 0.25 * random.random())
 
-    def _build_request(self, messages: list[ConversationMessage]) -> ProviderRequest:
-        """Build a ProviderRequest that sends ``messages`` with the agent's current settings."""
+    def _build_request(self, history: list[ConversationMessage], *extra: ConversationMessage) -> ProviderRequest:
+        """Build the request that sends the projection of ``history``, then ``extra``, with the agent's current settings.
 
+        The output limit is the model's maximum, lowered to the room the
+        context leaves in the window. With no room left it is not lowered: the
+        provider decides whether the request fits.
+        """
+
+        messages = [*project(history, self.transcript_path), *extra]
+        tools = self.tools.definitions
+        context = context_size(history)
+        if context is None:
+            # No response has reported usage for this context: estimate the whole request.
+            context = sum(map(estimate_tokens, messages)) + (len(self.system) + len(json.dumps(tools))) // 4
+        room = self.context_window - context - _OUTPUT_MARGIN_TOKENS
         return ProviderRequest(
             provider=self.provider,
             model=self.model,
             session_id=self.session_id,
             messages=messages,
             system=self.system,
-            tools=self.tools.definitions,
-            max_tokens=self.max_tokens,
+            tools=tools,
+            max_tokens=min(self.max_tokens, room) if room > 0 else self.max_tokens,
             api_key=self.api_key,
             api_base=self.api_base,
             reasoning_effort=self.reasoning_effort,

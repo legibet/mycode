@@ -43,7 +43,7 @@ def _normalize_stop_reason(raw_reason: Any) -> StopReason:
     reason = str(raw_reason or "").lower()
     if reason == "tool_use":
         return "tool_use"
-    if reason == "max_tokens":
+    if reason in {"max_tokens", "model_context_window_exceeded"}:
         return "length"
     if reason in {"end_turn", "stop_sequence"}:
         return "stop"

@@ -61,6 +61,8 @@ Provider quirks:
 
 `ProviderRequest.max_tokens` (fed from the catalog's `max_output_tokens`, sourced from models.dev `limit.output`) means **the total generated tokens for one response, reasoning included**. Hitting the cap surfaces as the provider's length finish reason, which normalizes to canonical `stop_reason="length"`.
 
+The agent sends the model's maximum output, lowered to the room the context leaves in the window: `context_window - context - 4096`. When that is not positive the limit is not lowered, and the provider decides whether the request fits. The context is the one `should_compact()` measures (`docs/sessions.md`), taken from the messages the request sends; when no response has reported usage for it, the agent estimates the whole request (messages, system prompt and tool definitions) at four characters per token. Some providers reject a request whose input plus output limit exceeds the window, and a model's maximum output can be most of its window.
+
 Endpoints disagree on which wire field carries this cap, so each adapter sends the one whose documented meaning is the total-output cap on its endpoint:
 
 | adapter       | wire field              | why                                                                                            |
@@ -243,8 +245,8 @@ Adapters persist only these canonical values: `stop`, `tool_use`, `length`, `err
 
 | adapter          | provider values                                                                                                                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Anthropic-like   | `end_turn`, `stop_sequence` -> `stop`; `tool_use` -> `tool_use`; `max_tokens` -> `length`                                                              |
-| OpenAI Chat      | `stop` -> `stop`; `tool_calls`, `function_call` -> `tool_use`; `length` -> `length`; `content_filter` -> `error`                                       |
+| Anthropic-like   | `end_turn`, `stop_sequence` -> `stop`; `tool_use` -> `tool_use`; `max_tokens`, `model_context_window_exceeded` -> `length`                             |
+| OpenAI Chat      | `stop` -> `stop`; `tool_calls`, `function_call` -> `tool_use`; `length`, `model_context_window_exceeded` -> `length`; `content_filter` -> `error`      |
 | Gemini           | `STOP` -> `stop`; `MAX_TOKENS` -> `length`; documented safety, policy, recitation, and malformed tool-call reasons -> `error`                          |
 | OpenAI Responses | `completed` -> `stop` or `tool_use` from output items; `incomplete.max_output_tokens` -> `length`; `incomplete.content_filter` and `failed` -> `error` |
 
