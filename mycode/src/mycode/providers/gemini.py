@@ -89,7 +89,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     label = "Google Gemini"
     default_base_url = "https://generativelanguage.googleapis.com"
     env_api_key_names = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
-    default_models = ("gemini-3.8-flash", "gemini-4-argon")
+    default_models = ("gemini-4-hydrogen", "gemini-4-argon", "gemini-4-carbon")
     supports_reasoning_effort = True
 
     @override
@@ -102,13 +102,11 @@ class GoogleGeminiAdapter(ProviderAdapter):
         finish_message: str | None = None
         usage: dict[str, Any] | None = None
 
-        with httpx2.Client(follow_redirects=True) as http_client:
-            async with httpx2.AsyncClient(follow_redirects=True) as http_async_client:
-                http_options = self._http_options(request)
-                http_options.httpx_client = http_client
-                http_options.httpx_async_client = http_async_client
-                client = self._build_client(request, http_options)
-
+        client = self._build_client(request, self._http_options(request))
+        # genai.Client opens both a sync and an async HTTPX2 client; each
+        # context closes one of them.
+        with client:
+            async with client.aio:
                 try:
                     stream = await client.aio.models.generate_content_stream(
                         model=request.model,

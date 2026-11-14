@@ -41,7 +41,7 @@ Model-specific reasoning efforts are listed in the model catalog (see `docs/sdk.
 
 Retries are owned by the Agent runtime, so provider SDK retries are disabled: openai and anthropic clients are constructed with `max_retries=0`, gemini with an explicit `HttpRetryOptions(attempts=1)` (google-genai defaults to no retries, but flips to multiple attempts once `retry_options` is set at all).
 
-`ProviderRequest.request_timeout` is the per-attempt transport timeout. openai and anthropic clients receive `httpx2.Timeout(request_timeout, connect=5)`, keeping the SDKs' 5s connect default. google-genai only takes a scalar per-request timeout (`HttpOptions.timeout`, milliseconds) that overrides any client-level `httpx2.Timeout`, so gemini has no separate connect phase; its pre-stream waits are bounded by the Agent's `stream_start_timeout` instead. Gemini receives application-owned sync and async HTTPX2 clients whose contexts own connection cleanup.
+`ProviderRequest.request_timeout` is the per-attempt transport timeout. openai and anthropic clients receive `httpx2.Timeout(request_timeout, connect=5)`, keeping the SDKs' 5s connect default. google-genai only takes a scalar per-request timeout (`HttpOptions.timeout`, milliseconds) that overrides any client-level `httpx2.Timeout`, so gemini has no separate connect phase; its pre-stream waits are bounded by the Agent's `stream_start_timeout` instead.
 
 Adapters raise `ProviderError` for upstream failures. The shared normalizer handles transport errors and HTTP statuses; adapters classify transient errors carried inside successful streams. The Agent only reads `ProviderError.retryable`.
 
@@ -122,11 +122,11 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 
 ### `google` — `gemini.py`
 
-- SDK: `google-genai` (official)
+- SDK: `google-genai>=3.0.0` (official)
 - API: Gemini Developer API
 - Base URL: `https://generativelanguage.googleapis.com`
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- Default models: `gemini-3.8-flash`, `gemini-4-argon`
+- Default models: `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-4-carbon`
 - `supports_reasoning_effort`: true; explicit values are converted to Gemini's `ThinkingLevel` enum
 - Replays original parts with their function-call ids and thought signatures
 - Cross-provider tool-loop fallback: adds documented dummy thought signature to avoid 400 errors
@@ -138,13 +138,13 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 
 ### `google_vertex` — `gemini.py`
 
-- SDK: `google-genai>=2.20.0` (official; custom HTTPX2 clients are injected through `HttpOptions`)
+- SDK: `google-genai>=3.0.0` (official)
 - API: Google Agent Platform (formerly Vertex AI), selected with `enterprise=True`
 - Base URL: built by the SDK from the auth mode and location; an explicit `api_base` overrides it
 - API key env: `GOOGLE_CLOUD_API_KEY`
 - ADC env: `GOOGLE_CLOUD_PROJECT` (required) and `GOOGLE_CLOUD_LOCATION` (optional; the SDK defaults ADC requests to `global`)
 - Auth values are resolved independently and passed explicitly: key alone selects express mode; project/location alone uses Application Default Credentials; key + project/location uses the project-bound combined mode and skips ADC
-- Combined key + project without location builds an invalid `locations/None` resource path (google-genai 2.20.0); set `GOOGLE_CLOUD_LOCATION` whenever combining them
+- Combined key + project without location builds an invalid `locations/None` resource path (still true in google-genai 3.0.0); set `GOOGLE_CLOUD_LOCATION` whenever combining them
 - Never uses the SDK's implicit key discovery, so `GEMINI_API_KEY`/`GOOGLE_API_KEY` cannot leak from the `google` provider
 - ADC is opt-in via a configured entry such as `{"type": "google_vertex"}`; `GOOGLE_CLOUD_PROJECT` alone does not auto-discover the provider (see `docs/config.md`)
 - Default models, model metadata, reasoning effort, message projection, streaming, thought signatures, and image/PDF input are all inherited from `google`

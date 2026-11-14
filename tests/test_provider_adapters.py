@@ -1171,7 +1171,7 @@ async def test_google_vertex_leaves_url_construction_to_the_sdk(
         pytest.param(GoogleVertexAdapter(), id="vertex"),
     ],
 )
-async def test_google_uses_httpx2_clients_with_agent_owned_timeout_and_retries(
+async def test_google_closes_sdk_clients_with_agent_owned_timeout_and_retries(
     monkeypatch: pytest.MonkeyPatch,
     adapter: GoogleGeminiAdapter,
 ) -> None:
@@ -1190,10 +1190,10 @@ async def test_google_uses_httpx2_clients_with_agent_owned_timeout_and_retries(
     http_options = client_factory.call_args.kwargs["http_options"]
     assert http_options.timeout == 37_500
     assert http_options.retry_options.attempts == 1
-    assert isinstance(http_options.httpx_client, httpx2.Client)
-    assert isinstance(http_options.httpx_async_client, httpx2.AsyncClient)
-    assert http_options.httpx_client.is_closed
-    assert http_options.httpx_async_client.is_closed
+    assert http_options.httpx_client is None
+    assert http_options.httpx_async_client is None
+    client.__exit__.assert_called_once()
+    client.aio.__aexit__.assert_awaited_once()
 
 
 async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
