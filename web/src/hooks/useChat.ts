@@ -4,7 +4,7 @@
  * stream come from useSessionStream, which the agent transcript shares.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import type {
   ChatResponse,
@@ -938,6 +938,12 @@ export function useChat(
     };
   }, []);
 
+  // Reads the current workspace's list, so a workspace change keeps the
+  // subscription open.
+  const refreshSessions = useEffectEvent(() => {
+    void fetchSessions();
+  });
+
   useEffect(() => {
     const sync = (runId: string) => {
       const session = activeSessionRef.current;
@@ -955,7 +961,7 @@ export function useChat(
       (event) => {
         for (const listener of eventListenersRef.current) listener.onEvent(event);
         if ("run" in event && event.run.kind === "agent") return;
-        void fetchSessions();
+        refreshSessions();
         if (event.session_id !== activeSessionRef.current.id) return;
         if (event.type === "job_started") {
           dispatch({ type: "job_started", job: event.job });
@@ -972,7 +978,7 @@ export function useChat(
         sync("*");
       },
     );
-  }, [activeRunRef, dispatch, fetchSessions, isStreaming]);
+  }, [activeRunRef, dispatch, isStreaming]);
 
   /** Stop a running background job, a command or an agent. Its result still reaches the model;
    * the job leaves the list with the `job_finished` event. */

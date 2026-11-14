@@ -2781,6 +2781,28 @@ describe("useChat server events", () => {
     expect(hook.result.current.jobs).toEqual([]);
   });
 
+  it("keeps one subscription across a workspace change", async () => {
+    const LIST_B = "/api/sessions?cwd=%2Fworkspace%2Fb";
+    const fetchMock = mockFetch({
+      [LIST_B]: createJsonResponse({ sessions: [] }),
+      "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
+    });
+    const hook = renderHook(
+      (cwd: string) => useChat({ provider: "", model: "", cwd, reasoningEfforts: {} }),
+      { initialProps: "/workspace/a" },
+    );
+    await waitFor(() => expect(hook.result.current.sessionLoading).toBe(false));
+    hook.rerender("/workspace/b");
+    await waitFor(() => expect(calls(fetchMock, LIST_B)).toBe(1));
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const source = FakeEventSource.instances[0];
+    expect(source?.close).not.toHaveBeenCalled();
+    // Events still refresh the list of the workspace now shown.
+    source?.emit({ type: "run_started", session_id: "other", run: runInfo("run-x") });
+    await waitFor(() => expect(calls(fetchMock, LIST_B)).toBe(2));
+  });
+
   it("leaves agent runs to the transcript dialog", async () => {
     const { fetchMock, source } = await renderWithSession(() => createSessionResponse(idleSession));
     await act(async () => {});
