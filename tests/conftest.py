@@ -6,15 +6,17 @@ import base64
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from prompt_toolkit.completion import DummyCompleter
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input import PipeInput
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
+from pypdf import PdfWriter
 
 from mycode.messages import ConversationMessage
 from mycode_cli.tui.terminal import Terminal
@@ -23,6 +25,21 @@ _ANSI = re.compile(r"\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07|[=>])")
 _STATUS = re.compile(r"\x1b\]7501;([^\x07]*)\x07")
 # Esc waits for a possible Esc+Enter before it counts as a lone key.
 ESC_WAIT = 0.8
+
+
+def image_bytes(size: tuple[int, int], image_format: str = "PNG", mode: str = "RGB", **save: object) -> bytes:
+    output = BytesIO()
+    Image.new(mode, size).save(output, image_format, **save)
+    return output.getvalue()
+
+
+def pdf_bytes(pages: int) -> bytes:
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=200, height=200)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
 
 
 class FakeAgent:

@@ -153,7 +153,6 @@ function attachmentToInputBlock(attachment: AttachedFile): Record<string, unknow
   return {
     type: attachment.kind === "image" ? "image" : "document",
     data: attachment.data,
-    mime_type: attachment.mime_type,
     name: attachment.name,
   };
 }

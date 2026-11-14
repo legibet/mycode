@@ -45,23 +45,18 @@ Structured `input` uses `ChatInputBlock`:
   {"type": "text", "text": "describe this"},
   {"type": "text", "text": "print('hi')", "name": "main.py", "is_attachment": true},
   {"type": "image", "path": "cat.png"},
-  {"type": "image", "data": "<base64>", "mime_type": "image/png", "name": "cat.png"},
+  {"type": "image", "data": "<base64>", "name": "cat.png"},
   {"type": "document", "path": "report.pdf"},
-  {"type": "document", "data": "<base64>", "mime_type": "application/pdf", "name": "report.pdf"}
+  {"type": "document", "data": "<base64>", "name": "report.pdf"}
 ]
 ```
 
 - `type: "text"` — uses `text`
-- `type: "text"` with `is_attachment=true` — wraps UTF-8 file content as the same `<file ...>` attachment text used by CLI `@file`
-- `type: "text"` with `path` (and `is_attachment=true`, no `text`) — server reads the workspace file at `path` (resolved under `cwd`) into the same `<file ...>` snapshot; the path is re-checked at send time (inside `cwd`, regular file, UTF-8, not image/PDF)
-- Text attachments are bounded like `read` (`docs/tools.md`): the `<file>` block holds the first window and its notices, which cite the workspace file. An upload that does not fit is saved whole to `<tool_output_dir>/upload-<id>` when the message is accepted, and the notices cite that file instead.
-- `type: "image"` — uses `path` or inline base64 `data`; workspace-relative `path` attachments set `is_attachment=true` so the server confines them to `cwd`
-- `type: "document"` — uses `path` or inline base64 `data`; workspace-relative `path` attachments use the same `is_attachment=true` boundary
-- `mime_type` is required when `data` is provided
-- `path` accepts `image/png`, `image/jpeg`, `image/gif`, `image/webp`
-- `path` accepts `application/pdf` for `type: "document"`
-- The resolved model must have `supports_image_input=true`
-- The resolved model must have `supports_pdf_input=true` for `type: "document"`
+- `type: "text"` with `is_attachment=true` — an uploaded UTF-8 text file in `text`
+- `type: "image"` or `"document"` with `data` — an uploaded image or PDF as base64
+- Any block with `path` — a file the server reads. `is_attachment=true` confines the path to `cwd`, and a `text` block with `path` requires it and takes no `text`. The server picks the block from the file's content at send time, whatever `type` says.
+- Every attachment becomes the block `docs/tools.md` (Attachments) gives for it under the resolved model. An upload the message does not hold whole (text over one `read` window, an image or PDF that is not included) is saved to `<tool_output_dir>/upload-<id>` when the message is accepted, and the block cites that file.
+- A `path` that is not a file or, with `is_attachment=true`, is outside `cwd` returns `400`, and so does `data` that is not base64.
 
 Response:
 

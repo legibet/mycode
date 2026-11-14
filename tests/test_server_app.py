@@ -7,6 +7,7 @@ import copy
 import json
 import shlex
 import string
+from base64 import b64encode
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -18,7 +19,7 @@ from typing import Any, cast, override
 
 import httpx2
 import pytest
-from conftest import FakeAgent
+from conftest import FakeAgent, image_bytes, pdf_bytes
 from fastapi import Request
 from starlette.testclient import TestClient
 from starlette.types import Message
@@ -26,9 +27,9 @@ from starlette.types import Message
 from mycode import Event, TextEvent, UsageEvent
 from mycode.agent import PersistCallback
 from mycode.messages import ConversationMessage, RewindMarker, build_message, text_block
-from mycode.models import ModelMetadata
 from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
+from mycode_cli.attachments import MAX_PDF_PAGES
 from mycode_cli.background import BackgroundJob, BackgroundJobs, job_id
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
@@ -239,8 +240,6 @@ def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
     [
         {"message": "hi", "input": [{"type": "text", "text": "also hi"}]},
         {"message": "   "},
-        {"input": [{"type": "image", "data": "abc"}]},
-        {"input": [{"type": "document", "data": "abc", "mime_type": "text/plain"}]},
         {"input": [{"type": "image"}]},
         {"input": [{"type": "text", "text": "x", "path": "a.py", "is_attachment": True}]},
         {"input": [{"type": "text", "path": "a.py"}]},
@@ -253,20 +252,8 @@ def test_chat_request_shape_validation(payload: dict[str, object]) -> None:
     assert response.status_code == 422
 
 
-def test_chat_capability_failure_does_not_create_session(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_chat_with_a_bad_upload_does_not_create_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(
-        "mycode_cli.config.resolve_model_metadata",
-        lambda **_: ModelMetadata(
-            provider="anthropic",
-            model="claude-sonnet-4-6",
-            supports_image_input=False,
-            supports_pdf_input=True,
-        ),
-    )
     store = SessionStore(data_dir=tmp_path / "sessions")
     app = create_api_app()
     app.dependency_overrides[get_store] = lambda: store
@@ -279,14 +266,14 @@ def test_chat_capability_failure_does_not_create_session(
                 "session_id": "new-session",
                 "cwd": str(tmp_path),
                 "message": None,
-                "input": [{"type": "image", "data": "abc", "mime_type": "image/png"}],
+                "input": [{"type": "image", "data": "é"}],
                 "provider": "anthropic",
                 "model": "claude-sonnet-4-6",
             },
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "current model does not support image input"
+    assert response.json()["detail"] == "image data is not valid base64"
     assert asyncio.run(store.load_session("new-session")) is None
 
 
@@ -384,6 +371,54 @@ def test_chat_bounds_text_attachments_and_saves_large_uploads(tmp_path: Path, mo
     assert saved.read_text(encoding="utf-8") == upload
     assert str(saved) in uploaded
     assert small == '<file name="small.txt">\nhello\n</file>'
+
+
+def test_chat_includes_media_within_the_limits_and_saves_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
+    app.dependency_overrides[get_run_manager] = lambda: RunManager()
+    image, long_pdf = image_bytes((4, 4)), pdf_bytes(MAX_PDF_PAGES + 1)
+    (tmp_path / "blob.bin").write_bytes(b"\x00\xff")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "s1",
+                "cwd": str(tmp_path),
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "input": [
+                    {"type": "text", "text": "check"},
+                    {"type": "image", "data": b64encode(image).decode(), "name": "shot.png"},
+                    {"type": "document", "data": b64encode(long_pdf).decode(), "name": "report.pdf"},
+                    {"type": "text", "path": "blob.bin", "name": "blob.bin", "is_attachment": True},
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        with client.stream("GET", f"/api/runs/{response.json()['run']['id']}/stream") as stream:
+            list(stream.iter_lines())
+
+    assert adapter.messages is not None
+    included, uploaded, workspace_file = adapter.messages[0]["content"][1:]
+    assert included == {
+        "type": "image",
+        "data": b64encode(image).decode(),
+        "mime_type": "image/png",
+        "name": "shot.png",
+    }
+    [saved] = (tmp_path / "sessions" / "s1" / "tool-output").iterdir()
+    assert saved.read_bytes() == long_pdf
+    for block, path in ((uploaded, saved), (workspace_file, tmp_path / "blob.bin")):
+        assert block["type"] == "text"
+        assert f"The file is at {path}." in block["text"]
 
 
 @pytest.mark.parametrize(
@@ -635,12 +670,11 @@ async def test_steer_and_queue_endpoints_reject_bad_input_and_finished_runs(
         client, state = run.client, run.state
         missing = await client.post("/api/runs/missing/steer", json={"message": "x", "input_id": "s1"})
         assert missing.status_code == 404
-        state.agent.supports_image_input = False
-        image = {"type": "image", "data": "abc", "mime_type": "image/png"}
-        rejected = await client.post(f"/api/runs/{state.id}/steer", json={"input": [image], "input_id": "s2"})
+        missing_file = {"type": "image", "path": "missing.png", "is_attachment": True}
+        rejected = await client.post(f"/api/runs/{state.id}/steer", json={"input": [missing_file], "input_id": "s2"})
         assert rejected.status_code == 400
-        assert rejected.json()["detail"] == "current model does not support image input"
-        rejected = await client.post("/api/sessions/s1/queue", json={"input": [image], "input_id": "q1"})
+        assert rejected.json()["detail"] == "file not found: missing.png"
+        rejected = await client.post("/api/sessions/s1/queue", json={"input": [missing_file], "input_id": "q1"})
         assert rejected.status_code == 400
 
         await run.finish()

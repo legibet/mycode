@@ -72,7 +72,7 @@ An unknown path, directory, unsupported binary, or missing or unsupported `media
 
 Path attachments expand `~`; relative paths use the Python process's current working directory. An embedding application that owns a workspace should resolve its paths before passing them to the SDK.
 
-Text attachments are inlined in full, with no size limit; an application that accepts large files bounds them itself, as the CLI does for `@path`.
+Attachments are included in full, whatever their size; an application that accepts large files bounds them itself, as the CLI does (`docs/tools.md`, Attachments).
 
 ### `run()` synchronous wrapper
 

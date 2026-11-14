@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast, override
 
 import pytest
-from conftest import ESC_WAIT, TerminalHarness
+from conftest import ESC_WAIT, TerminalHarness, image_bytes, pdf_bytes
 from prompt_toolkit.completion import Completer, DummyCompleter
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -237,7 +237,7 @@ class TestAttachments:
         code_file = tmp_path / "main.py"
         image_file = tmp_path / "diagram.png"
         code_file.write_text("print('hello')\n", encoding="utf-8")
-        image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+        image_file.write_bytes(image_bytes((4, 4)))
 
         chat = _chat(_AttachmentAgent(), tmp_path)
         message = chat._build_user_message(f"check @{code_file} @{image_file}")
@@ -256,7 +256,7 @@ class TestAttachments:
 
     def test_builds_message_with_pdf_attachment(self, tmp_path: Path, cli_home: Path) -> None:
         pdf_file = tmp_path / "report.pdf"
-        pdf_file.write_bytes(b"%PDF-1.7\nrest")
+        pdf_file.write_bytes(pdf_bytes(1))
 
         chat = _chat(_AttachmentAgent(), tmp_path)
         message = chat._build_user_message(f"summarize @{pdf_file}")
@@ -270,61 +270,24 @@ class TestAttachments:
             "name": "report.pdf",
         }
 
-    @pytest.mark.parametrize(
-        ("filename", "payload", "agent_kwargs", "expected_text"),
-        [
-            (
-                "diagram.png",
-                b"\x89PNG\r\n\x1a\nrest",
-                {"supports_image_input": False},
-                'media_type="image/png" kind="image">Current model does not support image input.',
-            ),
-            (
-                'report <"draft">.pdf',
-                b"%PDF-1.7\nrest",
-                {"supports_pdf_input": False},
-                'media_type="application/pdf" kind="document">Current model does not support PDF input.',
-            ),
-        ],
-    )
-    def test_falls_back_to_text_notice_for_unsupported_media(
-        self,
-        tmp_path: Path,
-        cli_home: Path,
-        filename: str,
-        payload: bytes,
-        agent_kwargs: dict[str, bool],
-        expected_text: str,
-    ) -> None:
-        path = tmp_path / filename
-        path.write_bytes(payload)
-
-        chat = _chat(_AttachmentAgent(**agent_kwargs), tmp_path)
-        message = chat._build_user_message(f"check @{shlex.quote(str(path))}")
-
-        assert message["role"] == "user"
-        assert message["content"][0] == {"type": "text", "text": f"check @{shlex.quote(str(path))}"}
-        assert message["content"][1] == {
-            "type": "text",
-            "text": f'<file name="{html.escape(str(path), quote=True)}" {expected_text}</file>',
-            "meta": {"attachment": True, "path": str(path)},
-        }
-
-    def test_keeps_attachment_input_order_when_mixing_supported_and_placeholder(
-        self, tmp_path: Path, cli_home: Path
-    ) -> None:
+    def test_names_files_that_are_not_included_by_path_in_prompt_order(self, tmp_path: Path, cli_home: Path) -> None:
         image_file = tmp_path / "diagram.png"
-        pdf_file = tmp_path / "report.pdf"
-        image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
-        pdf_file.write_bytes(b"%PDF-1.7\nrest")
+        pdf_file = tmp_path / 'report <"draft">.pdf'
+        binary_file = tmp_path / "blob.bin"
+        image_file.write_bytes(image_bytes((4, 4)))
+        pdf_file.write_bytes(pdf_bytes(1))
+        binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")
 
         chat = _chat(_AttachmentAgent(supports_pdf_input=False), tmp_path)
-        message = chat._build_user_message(f"check @{image_file} @{pdf_file}")
+        message = chat._build_user_message(f"check @{image_file} @{shlex.quote(str(pdf_file))} @{binary_file}")
 
-        # Order follows the prompt: image block first, then the PDF placeholder.
-        assert message["content"][1]["type"] == "image"
-        assert message["content"][2]["type"] == "text"
-        assert 'kind="document">Current model does not support PDF input.' in message["content"][2]["text"]
+        image, pdf, binary = message["content"][1:]
+        assert image["type"] == "image"
+        for block, path in ((pdf, pdf_file), (binary, binary_file)):
+            assert block["type"] == "text"
+            assert block.get("meta") == {"attachment": True, "path": str(path)}
+            assert block["text"].startswith(f'<file name="{html.escape(str(path), quote=True)}">')
+            assert f"The file is at {path}." in block["text"]
 
     def test_large_text_attachment_holds_first_read_window(self, tmp_path: Path, cli_home: Path) -> None:
         log_file = tmp_path / "huge.log"
@@ -338,16 +301,6 @@ class TestAttachments:
         assert "log line 1999\n" in text
         assert "log line 2000\n" not in text
         assert f"of {log_file}. Use read with offset=2001 to continue." in text
-
-    def test_skips_binary_attachment_that_is_not_image_or_pdf(self, tmp_path: Path, cli_home: Path) -> None:
-        binary_file = tmp_path / "blob.bin"
-        binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")
-
-        chat = _chat(_AttachmentAgent(), tmp_path)
-        message = chat._build_user_message(f"check @{binary_file}")
-
-        assert len(message["content"]) == 1
-        assert message["content"][0]["type"] == "text"
 
 
 class TestToolReview:

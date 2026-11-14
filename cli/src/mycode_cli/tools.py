@@ -21,13 +21,15 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher, unified_diff
+from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO, Literal, TextIO
 from uuid import uuid4
 
+from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
-from mycode.attachments import detect_image_mime_type
+from mycode.attachments import SUPPORTED_IMAGE_MIME_TYPES, detect_image_mime_type
 from mycode.messages import image_block, text_block
 from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
 from mycode_cli.background import BackgroundJob, BackgroundJobs
@@ -41,6 +43,11 @@ DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
 _READ_SKIP_CHUNK_CHARS = 64 * 1024
+# An image or PDF file larger than this does not enter the context.
+MAX_MEDIA_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_SIDE = 2000
+# 5 MB once base64-encoded.
+MAX_IMAGE_BYTES = 3_750_000
 BASH_TIMEOUT_SECONDS = 120
 _BASH_READ_CHUNK_SIZE = 64 * 1024
 _HIGHLIGHT_CONTEXT_LINES = 40
@@ -156,11 +163,48 @@ def _skip_line(file: TextIO) -> None:
         pass
 
 
+def fit_image(data: bytes) -> tuple[bytes, str]:
+    """Return ``data`` as an image the model can take, with its MIME type.
+
+    A PNG, JPEG, GIF or WebP image within ``MAX_IMAGE_SIDE`` and
+    ``MAX_IMAGE_BYTES`` is returned unchanged. Any other image is scaled down
+    to ``MAX_IMAGE_SIDE`` if it is larger and re-encoded as JPEG. Raises
+    ``ValueError`` with the reason when ``data`` is over ``MAX_MEDIA_BYTES``,
+    cannot be decoded, or is still over ``MAX_IMAGE_BYTES`` as that JPEG.
+    """
+
+    if len(data) > MAX_MEDIA_BYTES:
+        raise ValueError(f"the file is larger than {MAX_MEDIA_BYTES // 2**20} MB")
+    try:
+        image = Image.open(BytesIO(data))
+        mime_type = Image.MIME.get(image.format or "")
+        if (
+            mime_type in SUPPORTED_IMAGE_MIME_TYPES
+            and max(image.size) <= MAX_IMAGE_SIDE
+            and len(data) <= MAX_IMAGE_BYTES
+        ):
+            # Opening reads only the header; loading fails on a truncated file.
+            image.load()
+            return data, mime_type
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+        # JPEG has no transparency: transparent areas become white.
+        image = image.convert("RGBA")
+        flat = Image.new("RGB", image.size, "white")
+        flat.paste(image, mask=image.getchannel("A"))
+        output = BytesIO()
+        flat.save(output, "JPEG", quality=85)
+    except Exception as exc:
+        # Pillow raises errors of many types on a damaged file.
+        raise ValueError("the image could not be decoded") from exc
+    if output.tell() > MAX_IMAGE_BYTES:
+        raise ValueError("the image is still too large after scaling down")
+    return output.getvalue(), "image/jpeg"
+
+
 @tool(
     name="read",
-    description=(
-        "Read a UTF-8 text file or supported image. Use offset and limit to read large text files in sections."
-    ),
+    description=("Read a UTF-8 text file or an image. Use offset and limit to read large text files in sections."),
     parameters={
         "path": "File path, relative to the working directory or absolute.",
         "offset": "1-indexed starting line. Defaults to 1.",
@@ -181,25 +225,27 @@ def read_tool(
 
     file_path = resolve_path(path, cwd=ctx.deps.cwd)
 
-    image_mime_type = detect_image_mime_type(file_path)
-    if image_mime_type:
+    if detect_image_mime_type(file_path):
         if not ctx.supports_image_input:
             return ToolExecutionResult(
                 output="error: image input is not supported by the current model",
                 is_error=True,
             )
-        summary = f"Read image file [{image_mime_type}]"
         try:
-            image_data = b64encode(file_path.read_bytes()).decode("utf-8")
+            with file_path.open("rb") as f:
+                image, mime_type = fit_image(f.read(MAX_MEDIA_BYTES + 1))
         except FileNotFoundError:
             return ToolExecutionResult(output=f"error: file not found: {path}", is_error=True)
+        except ValueError as exc:
+            return ToolExecutionResult(output=f"error: cannot read image: {exc}", is_error=True)
         except Exception as exc:
             return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
+        summary = f"Read image file [{mime_type}]"
         return ToolExecutionResult(
             output=summary,
             content=[
                 text_block(summary),
-                image_block(image_data, mime_type=image_mime_type, name=file_path.name),
+                image_block(b64encode(image).decode("ascii"), mime_type=mime_type, name=file_path.name),
             ],
         )
 

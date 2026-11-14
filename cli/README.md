@@ -129,7 +129,7 @@ A `bash` call with `background=true` keeps running after the reply ends (`docs/t
 
 `/agents` lists the session's subagents. Choosing one prints its transcript; a running one can also be stopped.
 
-`@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
+`@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. A large image is scaled down. A file the message cannot hold (an image or PDF over 20MB, a PDF over 20 pages, any other binary file) is passed as its path for the agent to inspect. Pasted file paths become `@path` references.
 
 Slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/agents` `/quit` (alias `/exit`). `exit` and `quit` also exit.
 

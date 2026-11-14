@@ -22,7 +22,6 @@ class ChatInputBlock(BaseModel):
     text: str | None = None
     path: str | None = None
     data: str | None = None  # inline base64 (web upload)
-    mime_type: str | None = None
     name: str | None = None
     is_attachment: bool = False
 
@@ -40,13 +39,6 @@ class ChatInputBlock(BaseModel):
 
         if not self.path and not self.data:
             raise ValueError(f"{self.type} input requires path or data")
-
-        if self.type == "image" and self.data and not self.mime_type:
-            raise ValueError("image data requires mime_type")
-
-        if self.type == "document" and self.mime_type not in {None, "application/pdf"}:
-            raise ValueError("unsupported document mime_type")
-
         return self
 
 

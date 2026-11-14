@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, cast, override
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -112,7 +112,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 try:
                     stream = await client.aio.models.generate_content_stream(
                         model=request.model,
-                        contents=self._build_contents(request),
+                        contents=cast("types.ContentListUnionDict", self._build_contents(request)),
                         config=self._build_config(request),
                     )
                     started = False

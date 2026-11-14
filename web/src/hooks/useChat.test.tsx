@@ -289,7 +289,6 @@ describe("useChat", () => {
     expect(JSON.parse(String(chatCall?.[1]?.body)).input[1]).toEqual({
       type: "document",
       data: "large-pdf-base64",
-      mime_type: "application/pdf",
       name: "report.pdf",
     });
 

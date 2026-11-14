@@ -15,7 +15,7 @@ from mimetypes import guess_type
 from pathlib import Path
 from typing import Self
 
-from mycode.messages import BlockMeta, ContentBlock, TextBlock, document_block, image_block, text_block
+from mycode.messages import ContentBlock, TextBlock, document_block, image_block, text_block
 
 SUPPORTED_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 SUPPORTED_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
@@ -108,30 +108,15 @@ def build_attachment_blocks(attachments: Sequence[AttachmentLike]) -> list[Conte
     return blocks
 
 
-def unsupported_attachment_block(
-    *,
-    name: str,
-    mime_type: str,
-    kind: str,
-    path: str | None = None,
-) -> TextBlock:
-    """Text-block stand-in for an image/PDF block a model can't ingest.
-
-    Pass ``path`` (e.g. the original ``@path`` typed by the user) to keep it on
-    ``meta.path`` for UI labels; omit it when replaying history where the
-    on-disk path is no longer authoritative.
-    """
+def unsupported_attachment_block(*, name: str, mime_type: str, kind: str) -> TextBlock:
+    """Text block that stands in for an image or PDF block in a request to a model that cannot take it."""
 
     label = "image input" if kind == "image" else "PDF input"
     safe_name = html.escape(name, quote=True)
     safe_mime = html.escape(mime_type, quote=True)
-    body = f"Current model does not support {label}."
-    meta: BlockMeta = {"attachment": True}
-    if path is not None:
-        meta["path"] = path
     return text_block(
-        f'<file name="{safe_name}" media_type="{safe_mime}" kind="{kind}">{body}</file>',
-        meta=meta,
+        f'<file name="{safe_name}" media_type="{safe_mime}" kind="{kind}">Current model does not support {label}.</file>',
+        meta={"attachment": True},
     )
 
 

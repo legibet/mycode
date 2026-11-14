@@ -37,6 +37,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   workspace.py            # CLI workspace/tool dependency context
   tools.py                # local tools (read, write, edit, bash)
   web_tools.py            # configurable webfetch / websearch tools
+  attachments.py          # files attached to a user message: what the model gets for each
   agent_tool.py           # agent tool: subagent turns, blocking or background, resume
   agents.py               # subagent definitions: built-in general + agents/*.md discovery
   config.py               # layered JSON config, config validation, provider resolution, paths
@@ -89,7 +90,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`, anything touching JSONL / compact / rewind | `docs/sessions.md`                            |
 | `mycode/src/mycode/providers/*`                                                                              | `docs/providers.md`                           |
 | `cli/src/mycode_cli/main.py` (commands, options, `run` output)                                               | `docs/cli.md`                                 |
-| `cli/src/mycode_cli/tools.py`, `web_tools.py`, `permissions.py`                                              | `docs/tools.md`                               |
+| `cli/src/mycode_cli/tools.py`, `web_tools.py`, `attachments.py`, `permissions.py`                            | `docs/tools.md`                               |
 | `cli/src/mycode_cli/agent_tool.py`, `agents.py`, subagent building in `runtime.py`                           | `docs/subagents.md`                           |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                                                      | `docs/api.md`                                 |
 | `cli/src/mycode_cli/config.py`, `state.py`                                                                   | `docs/config.md`                              |

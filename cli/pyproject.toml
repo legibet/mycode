@@ -38,6 +38,8 @@ dependencies = [
     "httpx2>=2.13.1",
     "beautifulsoup4>=4.15.0",
     "markdownify>=1.2.3",
+    "pillow>=13.0.0",
+    "pypdf>=7.0.0",
 ]
 
 [project.scripts]

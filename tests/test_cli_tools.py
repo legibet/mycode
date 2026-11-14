@@ -5,14 +5,17 @@ from __future__ import annotations
 import base64
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from pathlib import Path
 from threading import Barrier, Lock, local
 
 import pytest
+from conftest import image_bytes
+from PIL import Image
 
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.config import WebConfig
-from mycode_cli.tools import DEFAULT_MAX_BYTES, DEFAULT_TOOLS, READ_MAX_LINE_CHARS, _atomic_write_text
+from mycode_cli.tools import DEFAULT_MAX_BYTES, DEFAULT_TOOLS, MAX_IMAGE_SIDE, READ_MAX_LINE_CHARS, _atomic_write_text
 from mycode_cli.workspace import CliDeps
 
 _PNG_1X1 = base64.b64decode(
@@ -213,6 +216,27 @@ class TestRead:
                     "name": "tiny.png",
                 },
             ]
+
+    def test_read_scales_down_large_image(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "wide.png").write_bytes(image_bytes((MAX_IMAGE_SIDE * 2, 10)))
+
+            result = _ctx(tmpdir, supports_image_input=True).call("read", {"path": "wide.png"})
+
+            assert result.output == "Read image file [image/jpeg]"
+            assert result.content is not None
+            image = result.content[1]
+            assert image["type"] == "image"
+            assert Image.open(BytesIO(base64.b64decode(image["data"]))).size == (MAX_IMAGE_SIDE, 5)
+
+    def test_read_damaged_image_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "broken.png").write_bytes(_PNG_1X1[:20])
+
+            result = _ctx(tmpdir, supports_image_input=True).call("read", {"path": "broken.png"})
+
+            assert result.is_error is True
+            assert result.output == "error: cannot read image: the image could not be decoded"
 
     def test_read_image_errors_when_model_does_not_support_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -23,13 +23,6 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.agent import Agent
-from mycode.attachments import (
-    Attachment,
-    build_attachment_blocks,
-    detect_document_mime_type,
-    detect_image_mime_type,
-    unsupported_attachment_block,
-)
 from mycode.compact import NothingToCompactError
 from mycode.events import CancelledEvent, ErrorEvent
 from mycode.messages import (
@@ -40,6 +33,7 @@ from mycode.messages import (
     text_block,
 )
 from mycode_cli.agent_tool import AGENT_INFO_FILE, read_agent_info
+from mycode_cli.attachments import file_block
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
@@ -56,7 +50,6 @@ from mycode_cli.runtime import LocalAgentHost, build_agent
 from mycode_cli.sessions import SessionInfo, SessionLockedError, SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
-from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import resolve_path
 
 from .render import (
@@ -642,28 +635,14 @@ class TerminalChat:
                 continue
             seen.add(path_text)
 
-            img = detect_image_mime_type(path)
-            pdf = detect_document_mime_type(path)
-            # An image/PDF the model can't ingest becomes a text placeholder so the
-            # message still references it.
-            if img and not self.agent.supports_image_input:
-                blocks.append(unsupported_attachment_block(name=path_text, mime_type=img, kind="image", path=path_text))
-                continue
-            if pdf and not self.agent.supports_pdf_input:
-                blocks.append(
-                    unsupported_attachment_block(name=path_text, mime_type=pdf, kind="document", path=path_text)
+            blocks.append(
+                file_block(
+                    path,
+                    name=path_text,
+                    supports_image=self.agent.supports_image_input,
+                    supports_pdf=self.agent.supports_pdf_input,
                 )
-                continue
-            if img or pdf:
-                blocks.extend(build_attachment_blocks([Attachment.path(path)]))
-                continue
-            # Text keeps the resolved path as its visible name; a non-UTF-8 binary is skipped.
-            try:
-                with path.open(encoding="utf-8") as file:
-                    window = read_text_window(file)
-            except UnicodeDecodeError:
-                continue
-            blocks.extend(build_attachment_blocks([Attachment.text(window.render(path), name=path_text)]))
+            )
 
         return build_message("user", blocks)
 

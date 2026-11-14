@@ -1,19 +1,19 @@
 # Built-in Tools
 
-Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`, `cli/src/mycode_cli/permissions.py`
+Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`, `cli/src/mycode_cli/attachments.py`, `cli/src/mycode_cli/permissions.py`
 
 The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider, and `agent` everywhere except inside a subagent (`docs/subagents.md`). They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. `read`, `webfetch`, `websearch`, and `agent` are parallel-safe, so consecutive calls to them run concurrently; `write`, `edit`, and `bash` run one at a time. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
 
 ## read
 
-Reads a UTF-8 text file or a supported image.
+Reads a UTF-8 text file or an image.
 
 - `offset` is a 1-indexed starting line; `limit` caps returned lines (default 2000). An offset beyond the end of the file is an error.
 - Output is also capped at 50KB of UTF-8, whatever `limit` is.
 - When more lines remain, the output ends with `[Showing lines A-B of <path>. Use read with offset=N to continue.]`.
 - Lines longer than 2000 chars are shortened with `... [line truncated]`; a trailing notice cites the first shortened line and gives byte-range bash commands for inspecting it.
-- `@path` text attachments use the same window and notices.
-- Image files return a text summary plus an image block. If the model does not accept image input, the call is an error.
+- A PNG, JPEG, GIF or WebP file returns a text summary plus an image block. An image of at most 2000px per side and 5MB of base64 is returned as it is; a larger one is scaled down to fit and re-encoded as JPEG.
+- An image file over 20MB or one that cannot be decoded is an error, and so is any image when the model does not accept image input.
 
 ## write
 
@@ -81,6 +81,21 @@ Searches with the configured Tavily or Exa provider and returns matching pages w
 - `search_depth` defaults to `balanced`; `fast` lowers latency and `deep` is reserved for searches where the normal mode is insufficient.
 - The internal whole-call timeout is fixed at 30 seconds. The tool has no timeout parameter.
 - Result metadata is `{"results": N}`, used by the WebUI collapsed suffix.
+
+## Attachments
+
+A file attached to a user message becomes one block, chosen by the file's content. This covers a TUI `@path`, a web upload, and a workspace file picked in the web `@` menu.
+
+| File                             | Block                                                                                    |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| UTF-8 text                       | A `<file>` text block with the first `read` window and its notices.                      |
+| Image                            | An `image` block, fitted as `read` fits an image.                                        |
+| PDF of at most 20MB and 20 pages | A `document` block.                                                                      |
+| Any other file                   | A `<file>` text block: `[Content not included: <reason>. The file is at <path>.]`        |
+
+An image or PDF is also given by its path when the current model does not accept that input, when the file is over 20MB, and when it cannot be decoded. The model then inspects the file with its tools. PDFs are limited by pages because a PDF's token cost follows its page count, not its size.
+
+A web upload has no path. One that the message does not hold whole is saved to `<tool_output_dir>/upload-<id>`, and the block cites that file (`docs/api.md`). The web client itself leaves out an image or PDF the current model does not accept, and any upload that is not UTF-8 text, an image or a PDF.
 
 ## Permissions
 
