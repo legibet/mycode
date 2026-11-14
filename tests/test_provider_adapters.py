@@ -1165,6 +1165,27 @@ async def test_google_vertex_leaves_url_construction_to_the_sdk(
 
 
 @pytest.mark.parametrize(
+    ("api_base", "expected_url"),
+    [
+        (None, "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent"),
+        ("https://gateway.example", "https://gateway.example/v1beta/models/m:generateContent"),
+        ("https://gateway.example/v1beta/", "https://gateway.example/v1beta/models/m:generateContent"),
+        ("https://gateway.example/v1", "https://gateway.example/v1/models/m:generateContent"),
+    ],
+)
+def test_google_gemini_appends_an_api_version_only_when_the_base_url_has_none(
+    api_base: str | None, expected_url: str
+) -> None:
+    adapter = GoogleGeminiAdapter()
+    request = request_obj(api_key="k", api_base=api_base)
+    client = adapter._build_client(request, adapter._http_options(request))
+
+    built = client._api_client._build_request("post", "models/m:generateContent", {})
+
+    assert built.url == expected_url
+
+
+@pytest.mark.parametrize(
     "adapter",
     [
         pytest.param(GoogleGeminiAdapter(), id="gemini"),

@@ -125,6 +125,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - SDK: `google-genai>=3.0.0` (official)
 - API: Gemini Developer API
 - Base URL: `https://generativelanguage.googleapis.com`
+- API version: `v1beta`, which keeps the `*-latest` model aliases that `v1` lacks; an `api_base` already ending in `/v1` or `/v1beta` is used as is
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
 - Default models: `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-4-carbon`
 - `supports_reasoning_effort`: true; explicit values are converted to Gemini's `ThinkingLevel` enum

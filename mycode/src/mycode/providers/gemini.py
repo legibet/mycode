@@ -179,9 +179,11 @@ class GoogleGeminiAdapter(ProviderAdapter):
         from google.genai import types
 
         base_url = self.resolve_base_url(request.api_base)
-        api_version = "v1beta"
-        if base_url and urlparse(base_url).path.rstrip("/").lower().endswith(("/v1", "/v1beta")):
-            api_version = None
+        # v1beta keeps the *-latest model aliases, which v1 lacks. A base URL that
+        # already ends in a version is used as is: the SDK appends api_version
+        # unless it is empty, and None means its own default.
+        versioned = urlparse(base_url or "").path.rstrip("/").lower().endswith(("/v1", "/v1beta"))
+        api_version = "" if versioned else "v1beta"
         return types.HttpOptions(
             base_url=base_url,
             api_version=api_version,
